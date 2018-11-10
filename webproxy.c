@@ -156,143 +156,33 @@ int main(int argc, char* argv[])
 			hostName = strtok_r(NULL, "/", &saveptr);
 			printf("HOST: %s\n", hostName);
 
+			clientSock = socket(AF_INET, SOCK_STREAM, 0);
 
-	    // int result = getaddrinfo(hostName, "80", &hints, &infoptr);
-	    // if (result) {
-	    //     fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(result));
-	    //     exit(1);
-	    // }
-			//
-	    // char ipAddress[MAXBUFSIZE];
-			// getnameinfo(infoptr->ai_addr, infoptr->ai_addrlen, ipAddress, sizeof (ipAddress), NULL, 0, NI_NUMERICHOST);
-			// printf("IP: %s\n", ipAddress);
+		   if (clientSock < 0) {
+		      perror("ERROR opening socket");
+		      exit(1);
+		   }
 
+			remoteHost = gethostbyname(hostName);
 
-			memset(&hints, 0, sizeof hints);
-		  hints.ai_family = AF_UNSPEC; // AF_INET or AF_INET6 to force version
-		  hints.ai_socktype = SOCK_STREAM;
+		   if (remoteHost == NULL) {
+		      fprintf(stderr,"ERROR, no such host\n");
+		      exit(0);
+		   }
 
-		  if ((status = getaddrinfo(hostName, NULL, &hints, &res)) != 0) {
-		      fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
-		      return 2;
-		  }
+		   bzero((char *) &remote_addr, sizeof(remote_addr));
+		   remote_addr.sin_family = AF_INET;
+		   bcopy((char *)remoteHost->h_addr, (char *)&remote_addr.sin_addr.s_addr, remoteHost->h_length);
+		   remote_addr.sin_port = htons(80);
 
-		  // printf("IP addresses for %s:\n\n", hostName);
-			//
-			// void *addr;
-			// char *ipver;
-		  // for(p = res;p != NULL; p = p->ai_next) {
-			//
-			//
-		  //     // get the pointer to the address itself,
-		  //     // different fields in IPv4 and IPv6:
-		  //     if (p->ai_family == AF_INET) { // IPv4
-		  //         struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
-		  //         addr = &(ipv4->sin_addr);
-		  //         ipver = "IPv4";
-			// 				break;
-		  //     } else { // IPv6
-		  //         struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)p->ai_addr;
-		  //         addr = &(ipv6->sin6_addr);
-		  //         ipver = "IPv6";
-		  //     }
-			//
-		  //     // convert the IP to a string and print it:
-		  //     inet_ntop(p->ai_family, addr, ipstr, sizeof ipstr);
-		  //     printf("  %s: %s\n", ipver, ipstr);
-		  // }
-			//
-			// res = p;
-			// printf("out of loop(P): \n");
-			// inet_ntop(p->ai_family, addr, ipstr, sizeof ipstr);
-			// printf("  %s: %s\n", ipver, ipstr);
-			// printf("out of loop(Res): \n");
-			// inet_ntop(res->ai_family, addr, ipstr, sizeof ipstr);
-			// printf("  %s: %s\n", ipver, ipstr);
+		   /* Now connect to the server */
+		   if (connect(clientSock, (struct sockaddr*)&remote_addr, sizeof(remote_addr)) < 0) {
+		      perror("ERROR connecting");
+		      exit(1);
+		   }
 
-		  //freeaddrinfo(res); // free the linked list
-			//printf("IP: %s\n", host);
-
-
-	    //freeaddrinfo(infoptr);
-
-
-
-
-
-			// bzero(&remote,sizeof(remote));               //zero the struct
-			// remote.sin_family = AF_INET;
-			// remote.sin_addr.s_addr = inet_addr(host);
-
-			if ((clientSock = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0) {
-      	printf("unable to create socket");
-				exit(-1);
-  		}
-
-			// if (connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
-      // perror("ERROR connecting");
-      // exit(1);
-   		// }
-
-			// if(connect(clientSock, (struct sockaddr*) &remote, sizeof(remote)) < 0) {
-			// 	printf("unable to connect\n");
-			// 	exit(-1);
-			// }
-			//
-			// printf("CONNECTED\n");
-
-			// printf("%s\n",host);
-			if(connect(clientSock, res->ai_addr, res->ai_addrlen) != -1)
-			{
-				// convert the IP to a string and print it:
-				char ipstr[INET6_ADDRSTRLEN];
-				void *addr;
-				if (res->ai_family == AF_INET)
-				{ // IPv4
-					struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
-					addr = &(ipv4->sin_addr);
-				}
-				else
-				{ // IPv6
-					struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)res->ai_addr;
-					addr = &(ipv6->sin6_addr);
-				}
-
-				inet_ntop(res->ai_family, addr, ipstr, sizeof(ipstr));
-			}
-			else
-			{
-				shutdown(clientSock,2);
-				printf("UNABLE CONNECT TO: %s\n", hostName);
-				perror("client: connect");
-				return -1;
-			}
-
-			freeaddrinfo(res);
 			printf("CONNECTED TO: %s\n", hostName);
-
-			// if(connect(clientSock, res->ai_addr, res->ai_addrlen) < 0) {
-			// 	printf("unable to connect to: %s\n", hostName);
-			// 	exit(-1);
-			// }
-			// printf("CONNECTED TO: %s\n", hostName);
-
-			// //Forward request
-			// len = write(clientSock, originalRequest, strlen(originalRequest));
-			// printf("Bytes sent: %i\n", len);
-			//
-			// bzero(buffer,sizeof(buffer));
-			// while(1) {
-			// 	nbytes = read(clientSock, buffer, MAXBUFSIZE);
-			// 	if(nbytes < 0) {
-			// 		break;
-			// 	}
-			// 	printf("BUFFER: %s\n", buffer);
-			// }
-
-
-
-
+			exit(0);
 
 
 
