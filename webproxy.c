@@ -158,47 +158,57 @@ int main(int argc, char* argv[])
 
 			clientSock = socket(AF_INET, SOCK_STREAM, 0);
 
-		   if (clientSock < 0) {
-		      perror("ERROR opening socket");
-		      exit(1);
-		   }
+			if(clientSock < 0) {
+				printf("Error opening socket\n");
+				exit(-1);
+			}
 
 			remoteHost = gethostbyname(hostName);
 
-		   if (remoteHost == NULL) {
-		      fprintf(stderr,"ERROR, no such host\n");
-		      exit(0);
-		   }
+		  if (remoteHost == NULL) {
+		     fprintf(stderr,"ERROR, no such host\n");
+		     exit(0);
+		  }
 
-		   bzero((char *) &remote_addr, sizeof(remote_addr));
-		   remote_addr.sin_family = AF_INET;
-		   bcopy((char *)remoteHost->h_addr, (char *)&remote_addr.sin_addr.s_addr, remoteHost->h_length);
-		   remote_addr.sin_port = htons(80);
+		  bzero((char *) &remote_addr, sizeof(remote_addr));
+		  remote_addr.sin_family = AF_INET;
+		  bcopy((char *)remoteHost->h_addr, (char *)&remote_addr.sin_addr.s_addr, remoteHost->h_length);
+		  remote_addr.sin_port = htons(80);
 
-		   /* Now connect to the server */
-		   if (connect(clientSock, (struct sockaddr*)&remote_addr, sizeof(remote_addr)) < 0) {
-		      perror("ERROR connecting");
-		      exit(1);
-		   }
+
+		  /* Now connect to the server */
+		  if (connect(clientSock, (struct sockaddr*)&remote_addr, sizeof(remote_addr)) < 0) {
+		     perror("ERROR connecting");
+		     exit(-1);
+		  }
 
 			printf("CONNECTED TO: %s\n", hostName);
-			exit(0);
 
 
 
-			//
-			// //Forward request
-			// len = write(clientSock, originalRequest, strlen(originalRequest));
-			// printf("Bytes sent: %i\n", len);
-			//
-			// bzero(buffer,sizeof(buffer));
-			// while(1) {
-			// 	nbytes = read(clientSock, buffer, MAXBUFSIZE);
-			// 	if(nbytes < 0) {
-			// 		break;
-			// 	}
-			// 	printf("BUFFER: %s\n", buffer);
-			// }
+
+			//Forward request
+			len = write(clientSock, originalRequest, strlen(originalRequest));
+			printf("Bytes sent: %i\n", len);
+
+			bzero(buffer,sizeof(buffer));
+			while(1) {
+				bzero(buffer,sizeof(buffer));
+				nbytes = read(clientSock, buffer, MAXBUFSIZE);
+				if(nbytes <= 0) {
+					break;
+				}
+				if(strlen(buffer) <= 0) {
+					continue;
+				}
+				len = write(connectionSock, buffer, strlen(buffer));
+				printf("sent: %i bytes\n", len);
+				printf("BUFFER: %s\n", buffer);
+			}
+			printf("outside of the loop\n");
+
+
+
 
 
 
