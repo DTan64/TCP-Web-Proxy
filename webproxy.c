@@ -25,10 +25,15 @@ void INThandler(int sig);
 int main(int argc, char* argv[])
 {
 
-	int sock;                           //This will be our socket
+	int sock, clientSock;                           //This will be our socket
 	int connectionSock;
-	struct sockaddr_in server_addr, client_addr;     //"Internet socket address structure"
-	struct addrinfo hints, *infoptr;
+	struct sockaddr_in server_addr, client_addr, remote_addr;     //"Internet socket address structure"
+
+	struct addrinfo hints, *res, *p;
+	int status;
+  char ipstr[INET6_ADDRSTRLEN];
+	struct hostent *remoteHost;
+
 	int nbytes;                        //number of bytes we receive in our message
 	char buffer[MAXBUFSIZE];             //a buffer to store our received message
 	char originalRequest[MAXBUFSIZE];
@@ -53,8 +58,6 @@ int main(int argc, char* argv[])
 	int readBytes;
 	int typeIndex;
 	struct stat st;
-	struct hostent* host;
-	struct in_addr **addr_list;
 	int pid;
 	char file_size[MAXBUFSIZE];
 	char sendBuffer[MAXBUFSIZE];
@@ -141,7 +144,7 @@ int main(int argc, char* argv[])
 				exit(1);
 			}
 
-
+			sprintf(originalRequest, "%s", buffer);
 			header = strtok_r(buffer, "\r\n\r\n", &saveptr);
 			printf("HEADER: %s\n", header);
 			method = strtok_r(header, " ", &saveptr);
@@ -154,23 +157,165 @@ int main(int argc, char* argv[])
 			printf("HOST: %s\n", hostName);
 
 
+	    // int result = getaddrinfo(hostName, "80", &hints, &infoptr);
+	    // if (result) {
+	    //     fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(result));
+	    //     exit(1);
+	    // }
+			//
+	    // char ipAddress[MAXBUFSIZE];
+			// getnameinfo(infoptr->ai_addr, infoptr->ai_addrlen, ipAddress, sizeof (ipAddress), NULL, 0, NI_NUMERICHOST);
+			// printf("IP: %s\n", ipAddress);
 
 
-	    int result = getaddrinfo(hostName, "80", &hints, &infoptr);
-	    if (result) {
-	        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(result));
-	        exit(1);
-	    }
-			struct addrinfo *p;
-	    char host[256];
+			memset(&hints, 0, sizeof hints);
+		  hints.ai_family = AF_UNSPEC; // AF_INET or AF_INET6 to force version
+		  hints.ai_socktype = SOCK_STREAM;
 
-	    for (p = infoptr; p != NULL; p = p->ai_next) {
+		  if ((status = getaddrinfo(hostName, NULL, &hints, &res)) != 0) {
+		      fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+		      return 2;
+		  }
 
-	        getnameinfo(p->ai_addr, p->ai_addrlen, host, sizeof (host), NULL, 0, NI_NUMERICHOST);
-	        puts(host);
-	    }
+		  // printf("IP addresses for %s:\n\n", hostName);
+			//
+			// void *addr;
+			// char *ipver;
+		  // for(p = res;p != NULL; p = p->ai_next) {
+			//
+			//
+		  //     // get the pointer to the address itself,
+		  //     // different fields in IPv4 and IPv6:
+		  //     if (p->ai_family == AF_INET) { // IPv4
+		  //         struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
+		  //         addr = &(ipv4->sin_addr);
+		  //         ipver = "IPv4";
+			// 				break;
+		  //     } else { // IPv6
+		  //         struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)p->ai_addr;
+		  //         addr = &(ipv6->sin6_addr);
+		  //         ipver = "IPv6";
+		  //     }
+			//
+		  //     // convert the IP to a string and print it:
+		  //     inet_ntop(p->ai_family, addr, ipstr, sizeof ipstr);
+		  //     printf("  %s: %s\n", ipver, ipstr);
+		  // }
+			//
+			// res = p;
+			// printf("out of loop(P): \n");
+			// inet_ntop(p->ai_family, addr, ipstr, sizeof ipstr);
+			// printf("  %s: %s\n", ipver, ipstr);
+			// printf("out of loop(Res): \n");
+			// inet_ntop(res->ai_family, addr, ipstr, sizeof ipstr);
+			// printf("  %s: %s\n", ipver, ipstr);
 
-	    freeaddrinfo(infoptr);
+		  //freeaddrinfo(res); // free the linked list
+			//printf("IP: %s\n", host);
+
+
+	    //freeaddrinfo(infoptr);
+
+
+
+
+
+			// bzero(&remote,sizeof(remote));               //zero the struct
+			// remote.sin_family = AF_INET;
+			// remote.sin_addr.s_addr = inet_addr(host);
+
+			if ((clientSock = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0) {
+      	printf("unable to create socket");
+				exit(-1);
+  		}
+
+			// if (connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
+      // perror("ERROR connecting");
+      // exit(1);
+   		// }
+
+			// if(connect(clientSock, (struct sockaddr*) &remote, sizeof(remote)) < 0) {
+			// 	printf("unable to connect\n");
+			// 	exit(-1);
+			// }
+			//
+			// printf("CONNECTED\n");
+
+			// printf("%s\n",host);
+			if(connect(clientSock, res->ai_addr, res->ai_addrlen) != -1)
+			{
+				// convert the IP to a string and print it:
+				char ipstr[INET6_ADDRSTRLEN];
+				void *addr;
+				if (res->ai_family == AF_INET)
+				{ // IPv4
+					struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
+					addr = &(ipv4->sin_addr);
+				}
+				else
+				{ // IPv6
+					struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)res->ai_addr;
+					addr = &(ipv6->sin6_addr);
+				}
+
+				inet_ntop(res->ai_family, addr, ipstr, sizeof(ipstr));
+			}
+			else
+			{
+				shutdown(clientSock,2);
+				printf("UNABLE CONNECT TO: %s\n", hostName);
+				perror("client: connect");
+				return -1;
+			}
+
+			freeaddrinfo(res);
+			printf("CONNECTED TO: %s\n", hostName);
+
+			// if(connect(clientSock, res->ai_addr, res->ai_addrlen) < 0) {
+			// 	printf("unable to connect to: %s\n", hostName);
+			// 	exit(-1);
+			// }
+			// printf("CONNECTED TO: %s\n", hostName);
+
+			// //Forward request
+			// len = write(clientSock, originalRequest, strlen(originalRequest));
+			// printf("Bytes sent: %i\n", len);
+			//
+			// bzero(buffer,sizeof(buffer));
+			// while(1) {
+			// 	nbytes = read(clientSock, buffer, MAXBUFSIZE);
+			// 	if(nbytes < 0) {
+			// 		break;
+			// 	}
+			// 	printf("BUFFER: %s\n", buffer);
+			// }
+
+
+
+
+
+
+
+			//
+			// //Forward request
+			// len = write(clientSock, originalRequest, strlen(originalRequest));
+			// printf("Bytes sent: %i\n", len);
+			//
+			// bzero(buffer,sizeof(buffer));
+			// while(1) {
+			// 	nbytes = read(clientSock, buffer, MAXBUFSIZE);
+			// 	if(nbytes < 0) {
+			// 		break;
+			// 	}
+			// 	printf("BUFFER: %s\n", buffer);
+			// }
+
+
+
+
+
+
+
 
 
 
