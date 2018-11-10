@@ -18,6 +18,7 @@
 /* You will have to modify the program below */
 
 #define MAXBUFSIZE 2048
+int listening = 1;
 
 void INThandler(int sig);
 
@@ -27,10 +28,20 @@ int main(int argc, char* argv[])
 	int sock;                           //This will be our socket
 	int connectionSock;
 	struct sockaddr_in server_addr, client_addr;     //"Internet socket address structure"
+	struct addrinfo hints, *infoptr;
 	int nbytes;                        //number of bytes we receive in our message
 	char buffer[MAXBUFSIZE];             //a buffer to store our received message
+	char originalRequest[MAXBUFSIZE];
 	char* method;
 	char* splitInput;
+	char* dns;
+
+	char* saveptr;
+	char* header;
+	char* fullAddress;
+	char* protocol;
+	char* hostName;
+
 	char fileName[MAXBUFSIZE];
 	char folderName[MAXBUFSIZE];
 	char filePath[MAXBUFSIZE];
@@ -42,6 +53,8 @@ int main(int argc, char* argv[])
 	int readBytes;
 	int typeIndex;
 	struct stat st;
+	struct hostent* host;
+	struct in_addr **addr_list;
 	int pid;
 	char file_size[MAXBUFSIZE];
 	char sendBuffer[MAXBUFSIZE];
@@ -73,18 +86,21 @@ int main(int argc, char* argv[])
 	server_addr.sin_addr.s_addr = INADDR_ANY;           //supplies the IP address of the local machine
 
 	//Causes the system to create a generic socket of type TCP
-	if ((sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
-	{
+	if ((sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) {
 		printf("unable to create socket");
 	}
 
-	//fcntl(sock, F_SETFL, fcntl(sock, F_GETFL, 0) | O_NONBLOCK);
+	int enable = 1;
+	if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0) {
+		printf("Error on socket options.\n");
+		return -1;
+	}
+
 	/******************
 		Once we've created a socket, we must bind that socket to the
 		local address and port we've supplied in the sockaddr_in struct
 	 ******************/
-	if (bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
-	{
+	if (bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
 		printf("unable to bind socket\n");
 		exit(1);
 	}
@@ -95,9 +111,8 @@ int main(int argc, char* argv[])
 
 	bzero(&client_addr, client_length);
 
-
 	signal(SIGINT, INThandler);
-	while(1) {
+	while(listening) {
 		// Accept Connection
 		connectionSock = accept(sock, (struct sockaddr *)&client_addr, (socklen_t *) &client_length);
 		if(connectionSock < 0) {
@@ -126,173 +141,44 @@ int main(int argc, char* argv[])
 				exit(1);
 			}
 
-			// GET or POST
-			method = strtok(buffer, " ");
-			if(strcmp(method, "GET")) {
-			 len = send(connectionSock, err_response, strlen(err_response), 0);
-			 exit(0);
-			}
 
-			// Get URI
-			splitInput = strtok(NULL, " ");
-			sprintf(uri, "%s", splitInput);
+			header = strtok_r(buffer, "\r\n\r\n", &saveptr);
+			printf("HEADER: %s\n", header);
+			method = strtok_r(header, " ", &saveptr);
+			printf("METHOD: %s\n", method);
+			fullAddress = strtok_r(NULL, " ", &saveptr);
+			printf("fullAddress: %s\n", fullAddress);
+			protocol = strtok_r(fullAddress, "://", &saveptr);
+			printf("PROTOCOL: %s\n", protocol);
+			hostName = strtok_r(NULL, "/", &saveptr);
+			printf("HOST: %s\n", hostName);
 
-			if(!strcmp(splitInput, "/") || !strcmp(splitInput, "/index.html")) {
 
-			 bzero(sendBuffer,sizeof(sendBuffer));
-			 strcat(sendBuffer, html_response);
-			 strcat(sendBuffer, contentLenght);
-			 if(stat("index.html", &st) == 0)
-					 sprintf(file_size, "%lli", st.st_size);
-			 strcat(sendBuffer, file_size);
-			 strcat(sendBuffer, "\r\n\r\n");
-			 len = send(connectionSock, sendBuffer, strlen(sendBuffer), 0);
-			 bzero(buffer,sizeof(buffer));
-			 fd = open("index.html", O_RDONLY);
-			 while(1) {
-				 readBytes = read(fd, buffer, sizeof(buffer));
-				 if(readBytes == 0) {
-					 break;
-				 }
-				 len = send(connectionSock, buffer, readBytes, 0);
-				 bzero(buffer,sizeof(buffer));
-			 }
-			 close(fd);
 
-			}
-			else {
-				int uriLen = strlen(uri);
-				if (splitInput[0] == '/') splitInput++;
-				sprintf(filePath, "%s", splitInput);
-				splitInput = strtok(filePath, "/");
-				sprintf(folderName, "%s", splitInput);
-				splitInput = strtok(NULL, "/");
-				sprintf(fileName, "%s", splitInput);
-				for(i = uriLen; i >= 0; i--) {
-					if(!strncmp(&uri[i], ".", 1)) {
-						typeIndex = i;
-						break;
-					}
-				}
 
-				// Get filePath
-				sprintf(fileType, "%s", &uri[typeIndex + 1]);
-				bzero(filePath,sizeof(filePath));
-				strcat(filePath, ".");
-				strcat(filePath, uri);
+	    int result = getaddrinfo(hostName, "80", &hints, &infoptr);
+	    if (result) {
+	        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(result));
+	        exit(1);
+	    }
+			struct addrinfo *p;
+	    char host[256];
 
-				// Check if file exists.
-				if (stat(filePath, &st) == -1) {
-					len = send(connectionSock, err_response, strlen(err_response), 0);
-					exit(0);
-				}
+	    for (p = infoptr; p != NULL; p = p->ai_next) {
 
-				if(!strcmp(fileType, "png")) {
-					bzero(sendBuffer,sizeof(sendBuffer));
-					strcat(sendBuffer, png_response);
-					strcat(sendBuffer, contentLenght);
-					if (stat(filePath, &st) == 0) {
-					 sprintf(file_size, "%lli", st.st_size);
-					}
-					strcat(sendBuffer, file_size);
-					strcat(sendBuffer, "\r\n\r\n");
-					len = send(connectionSock, sendBuffer, strlen(sendBuffer), 0);
-				}
-				else if(!strcmp(fileType, "gif")) {
-					bzero(sendBuffer,sizeof(sendBuffer));
-					strcat(sendBuffer, gif_response);
-					strcat(sendBuffer, contentLenght);
-					if (stat(filePath, &st) == 0) {
-						sprintf(file_size, "%lli", st.st_size);
-					}
-					strcat(sendBuffer, file_size);
-					strcat(sendBuffer, "\r\n\r\n");
-					len = send(connectionSock, sendBuffer, strlen(sendBuffer), 0);
-				}
-				else if(!strcmp(fileType, "html")) {
-					bzero(sendBuffer,sizeof(sendBuffer));
-					strcat(sendBuffer, html_response);
-					strcat(sendBuffer, contentLenght);
-					if (stat(filePath, &st) == 0) {
-					 sprintf(file_size, "%lli", st.st_size);
-					}
-					strcat(sendBuffer, file_size);
-					strcat(sendBuffer, "\r\n\r\n");
-					len = send(connectionSock, sendBuffer, strlen(sendBuffer), 0);
-				}
-				else if(!strcmp(fileType, "txt")) {
-					bzero(sendBuffer,sizeof(sendBuffer));
-					strcat(sendBuffer, text_response);
-					strcat(sendBuffer, contentLenght);
-					if (stat(filePath, &st) == 0) {
-					 sprintf(file_size, "%lli", st.st_size);
-					}
-					strcat(sendBuffer, file_size);
-					strcat(sendBuffer, "\r\n\r\n");
-					len = send(connectionSock, sendBuffer, strlen(sendBuffer), 0);
-				}
-				else if(!strcmp(fileType, "css")) {
-					bzero(sendBuffer,sizeof(sendBuffer));
-					strcat(sendBuffer, css_response);
-					strcat(sendBuffer, contentLenght);
-					if (stat(filePath, &st) == 0) {
-					 sprintf(file_size, "%lli", st.st_size);
-					}
-					strcat(sendBuffer, file_size);
-					strcat(sendBuffer, "\r\n\r\n");
-					len = send(connectionSock, sendBuffer, strlen(sendBuffer), 0);
-				}
-				else if(!strcmp(fileType, "jpg")) {
-					bzero(sendBuffer,sizeof(sendBuffer));
-					strcat(sendBuffer, jpg_response);
-					strcat(sendBuffer, contentLenght);
-					if (stat(filePath, &st) == 0) {
-					 sprintf(file_size, "%lli", st.st_size);
-					}
-					strcat(sendBuffer, file_size);
-					strcat(sendBuffer, "\r\n\r\n");
-					len = send(connectionSock, sendBuffer, strlen(sendBuffer), 0);
-				}
-				else if(!strcmp(fileType, "js")) {
-					bzero(sendBuffer,sizeof(sendBuffer));
-					strcat(sendBuffer, js_response);
-					strcat(sendBuffer, contentLenght);
-					if (stat(filePath, &st) == 0) {
-					 sprintf(file_size, "%lli", st.st_size);
-					}
-					strcat(sendBuffer, file_size);
-					strcat(sendBuffer, "\r\n\r\n");
-					len = send(connectionSock, sendBuffer, strlen(sendBuffer), 0);
-				}
-				else if(!strcmp(fileType, "htm")) {
-					bzero(sendBuffer,sizeof(sendBuffer));
-					strcat(sendBuffer, htm_response);
-					strcat(sendBuffer, contentLenght);
-					if (stat(filePath, &st) == 0) {
-					sprintf(file_size, "%lli", st.st_size);
-					}
-					strcat(sendBuffer, file_size);
-					strcat(sendBuffer, "\r\n\r\n");
-					len = send(connectionSock, sendBuffer, strlen(sendBuffer), 0);
-				}
+	        getnameinfo(p->ai_addr, p->ai_addrlen, host, sizeof (host), NULL, 0, NI_NUMERICHOST);
+	        puts(host);
+	    }
 
-				fd = open(filePath, O_RDONLY);
-				if(fd < 0) {
-					printf("Error opening file.\n");
-					exit(0);
-				}
+	    freeaddrinfo(infoptr);
 
-				bzero(buffer,sizeof(buffer));
-				while(1) {
-					readBytes = read(fd, buffer, sizeof(buffer));
-					if(readBytes == 0) {
-					 break;
-					}
-					len = send(connectionSock, buffer, readBytes, 0);
-					bzero(buffer,sizeof(buffer));
-				}
-				close(fd);
-			}
+
+
+
+
+
+
+
 			exit(0);
 		}
 		// Parent Proccess
@@ -303,5 +189,6 @@ int main(int argc, char* argv[])
 void INThandler(int sig)
 {
 	signal(sig, SIG_IGN);
+	listening = 0;
 	exit(0);
 }
