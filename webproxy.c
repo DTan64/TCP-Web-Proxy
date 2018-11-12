@@ -135,8 +135,7 @@ int main(int argc, char* argv[])
 				printf("HOST: %s\n", hostName);
 
 				// TODO: Implement caching
-				if(blackList("www.google.com") == true) {
-					printf("Hit blackList\n");
+				if(blackList(hostName) == true) {
           write(connectionSock, err_403, strlen(err_403));
 					bzero(buffer,sizeof(buffer));
 					exit(0);
