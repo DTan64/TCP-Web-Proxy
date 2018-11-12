@@ -21,18 +21,18 @@
 int listening = 1;
 
 void INThandler(int sig);
+void handleRequest(int connectionSock, char* request, char* uri, char* hostName);
 
 int main(int argc, char* argv[])
 {
 
-	int sock, clientSock;                           //This will be our socket
+	int sock;                           //This will be our socket
 	int connectionSock;
-	struct sockaddr_in server_addr, client_addr, remote_addr;     //"Internet socket address structure"
+	struct sockaddr_in server_addr, client_addr;     //"Internet socket address structure"
 
 	struct addrinfo hints, *res, *p;
 	int status;
   char ipstr[INET6_ADDRSTRLEN];
-	struct hostent *remoteHost;
 
 	int nbytes;                        //number of bytes we receive in our message
 	char buffer[MAXBUFSIZE];             //a buffer to store our received message
@@ -137,91 +137,36 @@ int main(int argc, char* argv[])
 			bzero(filePath,sizeof(filePath));
 			bzero(fileType,sizeof(fileType));
 			bzero(uri,sizeof(uri));
+			close(sock);
 
-			nbytes = read(connectionSock, buffer, MAXBUFSIZE);
-			if(nbytes < 0) {
-				perror("ERROR reading from socket");
-				exit(1);
-			}
+			while((nbytes = read(connectionSock, buffer, MAXBUFSIZE)) > 0) {
+				printf("BUFFER: %s\n", buffer);
 
-			sprintf(originalRequest, "%s", buffer);
-			header = strtok_r(buffer, "\r\n\r\n", &saveptr);
-			printf("HEADER: %s\n", header);
-			method = strtok_r(header, " ", &saveptr);
-			printf("METHOD: %s\n", method);
-			fullAddress = strtok_r(NULL, " ", &saveptr);
-			printf("fullAddress: %s\n", fullAddress);
-			protocol = strtok_r(fullAddress, "://", &saveptr);
-			printf("PROTOCOL: %s\n", protocol);
-			hostName = strtok_r(NULL, "/", &saveptr);
-			printf("HOST: %s\n", hostName);
+				sprintf(originalRequest, "%s", buffer);
+				header = strtok_r(buffer, "\r\n\r\n", &saveptr);
+				printf("HEADER: %s\n", header);
+				method = strtok_r(header, " ", &saveptr);
+				printf("METHOD: %s\n", method);
 
-			clientSock = socket(AF_INET, SOCK_STREAM, 0);
-
-			if(clientSock < 0) {
-				printf("Error opening socket\n");
-				exit(-1);
-			}
-
-			remoteHost = gethostbyname(hostName);
-
-		  if (remoteHost == NULL) {
-		     fprintf(stderr,"ERROR, no such host\n");
-		     exit(0);
-		  }
-
-		  bzero((char *) &remote_addr, sizeof(remote_addr));
-		  remote_addr.sin_family = AF_INET;
-		  bcopy((char *)remoteHost->h_addr, (char *)&remote_addr.sin_addr.s_addr, remoteHost->h_length);
-		  remote_addr.sin_port = htons(80);
-
-
-		  /* Now connect to the server */
-		  if (connect(clientSock, (struct sockaddr*)&remote_addr, sizeof(remote_addr)) < 0) {
-		     perror("ERROR connecting");
-		     exit(-1);
-		  }
-
-			printf("CONNECTED TO: %s\n", hostName);
-
-
-
-
-			//Forward request
-			len = write(clientSock, originalRequest, strlen(originalRequest));
-			printf("Bytes sent: %i\n", len);
-
-			bzero(buffer,sizeof(buffer));
-			while(1) {
-				bzero(buffer,sizeof(buffer));
-				nbytes = read(clientSock, buffer, MAXBUFSIZE);
-				if(nbytes <= 0) {
-					break;
-				}
-				if(strlen(buffer) <= 0) {
+				if(strcmp(method, "GET")) {
+          write(connectionSock, err_response, strlen(err_response));
+					bzero(buffer,sizeof(buffer));
 					continue;
 				}
-				len = write(connectionSock, buffer, strlen(buffer));
-				printf("sent: %i bytes\n", len);
-				printf("BUFFER: %s\n", buffer);
+
+				fullAddress = strtok_r(NULL, " ", &saveptr);
+				printf("fullAddress: %s\n", fullAddress);
+				protocol = strtok_r(fullAddress, "://", &saveptr);
+				printf("PROTOCOL: %s\n", protocol);
+				hostName = strtok_r(NULL, "/", &saveptr);
+				printf("HOST: %s\n", hostName);
+
+				// TODO: Implement caching
+				handleRequest(connectionSock, originalRequest, fullAddress, hostName);
+				bzero(buffer,sizeof(buffer));
 			}
 			printf("outside of the loop\n");
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+			close(connectionSock);
 
 
 			exit(0);
@@ -236,4 +181,60 @@ void INThandler(int sig)
 	signal(sig, SIG_IGN);
 	listening = 0;
 	exit(0);
+}
+
+void handleRequest(int connectionSock, char* request, char* uri, char* hostName)
+{
+
+	int remoteSock, len, nbytes;
+	char buffer[MAXBUFSIZE];
+	struct hostent *remoteHost;
+	struct sockaddr_in remote_addr;
+
+	remoteSock = socket(AF_INET, SOCK_STREAM, 0);
+
+	if(remoteSock < 0) {
+		printf("Error opening socket\n");
+		exit(-1);
+	}
+
+	remoteHost = gethostbyname(hostName);
+
+	if (remoteHost == NULL) {
+		 fprintf(stderr,"ERROR, no such host\n");
+		 exit(0);
+	}
+
+	bzero((char *) &remote_addr, sizeof(remote_addr));
+	remote_addr.sin_family = AF_INET;
+	bcopy((char *)remoteHost->h_addr, (char *)&remote_addr.sin_addr.s_addr, remoteHost->h_length);
+	remote_addr.sin_port = htons(80);
+
+
+	/* Now connect to the server */
+	if (connect(remoteSock, (struct sockaddr*)&remote_addr, sizeof(remote_addr)) < 0) {
+		 perror("ERROR connecting");
+		 exit(-1);
+	}
+
+	printf("CONNECTED TO: %s\n", hostName);
+
+
+	//Forward Request
+	len = write(remoteSock, request, strlen(request));
+
+
+	//Receive Response
+	bzero(buffer,sizeof(buffer));
+	while(1) {
+		nbytes = read(remoteSock, buffer, MAXBUFSIZE);
+		if(nbytes == 0) {
+			break;
+		}
+		len = send(connectionSock, buffer, nbytes, 0);
+		bzero(buffer,sizeof(buffer));
+	}
+	printf("outside of the loop\n");
+	close(remoteSock);
+
 }
