@@ -15,13 +15,14 @@
 #include <stdbool.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include "hashTable.h"
 /* You will have to modify the program below */
 
 #define MAXBUFSIZE 2048
 int listening = 1;
 
 void INThandler(int sig);
-void handleRequest(int connectionSock, char* request, char* uri, char* hostName);
+void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache);
 
 int main(int argc, char* argv[])
 {
@@ -29,59 +30,35 @@ int main(int argc, char* argv[])
 	int sock;                           //This will be our socket
 	int connectionSock;
 	struct sockaddr_in server_addr, client_addr;     //"Internet socket address structure"
-
 	struct addrinfo hints, *res, *p;
-	int status;
-  char ipstr[INET6_ADDRSTRLEN];
-
 	int nbytes;                        //number of bytes we receive in our message
 	char buffer[MAXBUFSIZE];             //a buffer to store our received message
 	char originalRequest[MAXBUFSIZE];
 	char* method;
-	char* splitInput;
-	char* dns;
-
 	char* saveptr;
 	char* header;
 	char* fullAddress;
 	char* protocol;
 	char* hostName;
 
-	char fileName[MAXBUFSIZE];
-	char folderName[MAXBUFSIZE];
-	char filePath[MAXBUFSIZE];
-	char fileType[MAXBUFSIZE];
-	char uri[MAXBUFSIZE];
 	int fd;
-	int len;
-	int i;
-	int readBytes;
-	int typeIndex;
-	struct stat st;
 	int pid;
-	char file_size[MAXBUFSIZE];
-	char sendBuffer[MAXBUFSIZE];
-	char png_response[] = "HTTP/1.1 200 OK\r\n" "Content-Type: image/png; charset=UTF-8\r\n";
-	char gif_response[] = "HTTP/1.1 200 OK\r\n" "Content-Type: image/gif; charset=UTF-8\r\n";
-	char html_response[] = "HTTP/1.1 200 OK\r\n" "Content-Type: text/html; charset=UTF-8\r\n";
-	char text_response[] = "HTTP/1.1 200 OK\r\n" "Content-Type: text/plain; charset=UTF-8\r\n";
-	char css_response[] = "HTTP/1.1 200 OK\r\n" "Content-Type: text/css; charset=UTF-8\r\n";
-	char jpg_response[] = "HTTP/1.1 200 OK\r\n" "Content-Type: image/jpeg; charset=UTF-8\r\n";
-	char js_response[] = "HTTP/1.1 200 OK\r\n" "Content-Type: text/javascript; charset=UTF-8\r\n";
-	char htm_response[] = "HTTP/1.1 200 OK\r\n" "Content-Type: text/html; charset=UTF-8\r\n";
+	int timeout;
 	char err_response[] = "HTTP/1.1 500 Internal Server Error\r\n\r\n" "Internal Server Error.";
-	char contentLenght[] = "Content-Length: ";
 	int client_length = sizeof(client_addr);
+	HashTable* addressCache = createTable(50);
 
 	/******************
 		This code populates the sockaddr_in struct with
 		the information about our socket
 	 ******************/
 
-	if(argc < 2) {
-		printf("No port specified\n");
+	if(argc < 3) {
+		printf("USAGE: ./webproxy <port> <timeout>");
 		return -1;
 	}
+
+	timeout = atoi(argv[2]);
 
 	bzero(&server_addr,sizeof(server_addr));                    //zero the struct
 	server_addr.sin_family = AF_INET;                   //address family
@@ -132,11 +109,6 @@ int main(int argc, char* argv[])
 		// Spawn child process for multiple connections.
 		if (pid == 0) {
 			bzero(buffer,sizeof(buffer));
-			bzero(fileName,sizeof(fileName));
-			bzero(folderName,sizeof(folderName));
-			bzero(filePath,sizeof(filePath));
-			bzero(fileType,sizeof(fileType));
-			bzero(uri,sizeof(uri));
 			close(sock);
 
 			while((nbytes = read(connectionSock, buffer, MAXBUFSIZE)) > 0) {
@@ -162,13 +134,10 @@ int main(int argc, char* argv[])
 				printf("HOST: %s\n", hostName);
 
 				// TODO: Implement caching
-				handleRequest(connectionSock, originalRequest, fullAddress, hostName);
+				handleRequest(connectionSock, originalRequest, hostName, addressCache);
 				bzero(buffer,sizeof(buffer));
 			}
-			printf("outside of the loop\n");
 			close(connectionSock);
-
-
 			exit(0);
 		}
 		// Parent Proccess
@@ -183,12 +152,12 @@ void INThandler(int sig)
 	exit(0);
 }
 
-void handleRequest(int connectionSock, char* request, char* uri, char* hostName)
+void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache)
 {
 
 	int remoteSock, len, nbytes;
 	char buffer[MAXBUFSIZE];
-	struct hostent *remoteHost;
+	struct hostent* remoteHost;
 	struct sockaddr_in remote_addr;
 
 	remoteSock = socket(AF_INET, SOCK_STREAM, 0);
@@ -198,11 +167,19 @@ void handleRequest(int connectionSock, char* request, char* uri, char* hostName)
 		exit(-1);
 	}
 
-	remoteHost = gethostbyname(hostName);
-
-	if (remoteHost == NULL) {
-		 fprintf(stderr,"ERROR, no such host\n");
-		 exit(0);
+	remoteHost = search(addressCache, hostName);
+	if(remoteHost == NULL) {
+		printf("MISS\n");
+		remoteHost = gethostbyname(hostName);
+		if (remoteHost == NULL) {
+			 fprintf(stderr,"ERROR, no such host\n");
+			 exit(0);
+		}
+		printf("Caching...\n");
+		insert(addressCache, hostName, remoteHost);
+	}
+	else {
+		printf("HIT\n");
 	}
 
 	bzero((char *) &remote_addr, sizeof(remote_addr));
@@ -210,19 +187,14 @@ void handleRequest(int connectionSock, char* request, char* uri, char* hostName)
 	bcopy((char *)remoteHost->h_addr, (char *)&remote_addr.sin_addr.s_addr, remoteHost->h_length);
 	remote_addr.sin_port = htons(80);
 
-
 	/* Now connect to the server */
 	if (connect(remoteSock, (struct sockaddr*)&remote_addr, sizeof(remote_addr)) < 0) {
 		 perror("ERROR connecting");
 		 exit(-1);
 	}
 
-	printf("CONNECTED TO: %s\n", hostName);
-
-
 	//Forward Request
 	len = write(remoteSock, request, strlen(request));
-
 
 	//Receive Response
 	bzero(buffer,sizeof(buffer));
