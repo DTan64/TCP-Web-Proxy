@@ -23,6 +23,7 @@ int listening = 1;
 
 void INThandler(int sig);
 void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache);
+int blackList(char* hostname);
 
 int main(int argc, char* argv[])
 {
@@ -41,10 +42,10 @@ int main(int argc, char* argv[])
 	char* protocol;
 	char* hostName;
 
-	int fd;
 	int pid;
 	int timeout;
-	char err_response[] = "HTTP/1.1 500 Internal Server Error\r\n\r\n" "Internal Server Error.";
+	char err_500[] = "HTTP/1.1 500 Internal Server Error\r\n\r\n" "Internal Server Error.";
+	char err_403[] = "HTTP/1.1 403 Forbidden\r\n\r\n" "ERROR 403 Forbidden.";
 	int client_length = sizeof(client_addr);
 	HashTable* addressCache = createTable(50);
 
@@ -121,7 +122,7 @@ int main(int argc, char* argv[])
 				printf("METHOD: %s\n", method);
 
 				if(strcmp(method, "GET")) {
-          write(connectionSock, err_response, strlen(err_response));
+          write(connectionSock, err_500, strlen(err_500));
 					bzero(buffer,sizeof(buffer));
 					continue;
 				}
@@ -134,6 +135,14 @@ int main(int argc, char* argv[])
 				printf("HOST: %s\n", hostName);
 
 				// TODO: Implement caching
+				if(blackList("www.google.com") == true) {
+					printf("Hit blackList\n");
+          write(connectionSock, err_403, strlen(err_403));
+					bzero(buffer,sizeof(buffer));
+					exit(0);
+				}
+
+
 				handleRequest(connectionSock, originalRequest, hostName, addressCache);
 				bzero(buffer,sizeof(buffer));
 			}
@@ -176,10 +185,12 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 			 exit(0);
 		}
 		printf("Caching...\n");
+		printf("remoteHost: %s\n", hostName);
 		insert(addressCache, hostName, remoteHost);
 	}
 	else {
 		printf("HIT\n");
+		printf("remoteHost: %s\n", hostName);
 	}
 
 	bzero((char *) &remote_addr, sizeof(remote_addr));
@@ -208,5 +219,35 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 	}
 	printf("outside of the loop\n");
 	close(remoteSock);
+
+}
+
+int blackList(char* hostName)
+{
+
+	FILE* fd;
+	char line[100];
+	char* domain;
+
+	domain = hostName;
+	if(!strncmp(hostName, "w", 1)) {
+		domain += 4;
+	}
+
+	fd = fopen("blacklist.txt", "r");
+	if(fd < 0) {
+		printf("Error opening file...\n");
+		exit(0);
+	}
+
+	while(fgets(line, sizeof(line), fd) != NULL) {
+		line[strlen(line) - 1] = '\0';
+		if(!strcmp(domain, line)) {
+			fclose(fd);
+			return true;
+		}
+	}
+	fclose(fd);
+	return false;
 
 }
