@@ -22,7 +22,7 @@
 int listening = 1;
 
 void INThandler(int sig);
-void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache);
+void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char fileName[MAXBUFSIZE]);
 int blackList(char* hostname);
 
 int main(int argc, char* argv[])
@@ -48,6 +48,35 @@ int main(int argc, char* argv[])
 	char err_403[] = "HTTP/1.1 403 Forbidden\r\n\r\n" "ERROR 403 Forbidden.";
 	int client_length = sizeof(client_addr);
 	HashTable* addressCache = createTable(50);
+	// struct timeval tv;
+	//
+	// typedef struct Page {
+	// 	int timeout;
+	// 	char* name;
+	// 	FILE* fd;
+	// } Page;
+	//
+	// typedef struct PageCache {
+	// 	Page** pages;
+	// 	int size;
+	// } PageCache;
+	//
+	// Page* tmp = malloc(sizeof(Page));
+	// PageCache Book;
+	// Book.pages = calloc(10, sizeof(Page));
+	// gettimeofday(&tv, NULL);
+	// tmp->timeout = tv.tv_sec;
+	// printf("Timeout: %i\n", tmp->timeout);
+	// sleep(60);
+	// gettimeofday(&tv,NULL);
+	// printf("Current time: %i\n", tv.tv_sec - tmp->timeout);
+	//
+	// Book.pages[0] = tmp;
+	// printf("First Page: %i\n", Book.pages[0]->timeout);
+	// printf("Timeout: %i\n", tmp->timeout);
+
+
+
 
 	/******************
 		This code populates the sockaddr_in struct with
@@ -127,12 +156,44 @@ int main(int argc, char* argv[])
 					continue;
 				}
 
+				char tmp[MAXBUFSIZE];
+				char fileName[MAXBUFSIZE];
 				fullAddress = strtok_r(NULL, " ", &saveptr);
 				printf("fullAddress: %s\n", fullAddress);
+				sprintf(tmp, "%s", fullAddress);
 				protocol = strtok_r(fullAddress, "://", &saveptr);
 				printf("PROTOCOL: %s\n", protocol);
 				hostName = strtok_r(NULL, "/", &saveptr);
 				printf("HOST: %s\n", hostName);
+
+				// Get file name
+				int fileStart = 0;
+				int fileNameIndex = 0;
+				for(int i = strlen(tmp) - 1; i >= 0; i--) {
+					if(!strncmp(&tmp[strlen(tmp) - 1], "/", 1)) {
+						fileStart = -2;
+						break;
+					}
+					if(!strncmp(&tmp[i], "/", 1)) {
+						fileStart = i;
+						break;
+					}
+				}
+				fileStart++;
+				bzero(fileName,sizeof(fileName));
+
+				if(fileStart >= 0) {
+					for(int i = fileStart; i < strlen(tmp); i++) {
+						if(!strncmp(&tmp[i], "?", 1) || !strncmp(&tmp[i], "\0", 1) || !strncmp(&tmp[i], "\n", 1)) {
+							break;
+						}
+						fileName[fileNameIndex] = tmp[i];
+						fileNameIndex++;
+					}
+				}
+
+
+				printf("FileName: %s\n", fileName);
 
 				// TODO: Implement caching
 				if(blackList(hostName) == true) {
@@ -141,8 +202,7 @@ int main(int argc, char* argv[])
 					exit(0);
 				}
 
-
-				handleRequest(connectionSock, originalRequest, hostName, addressCache);
+				handleRequest(connectionSock, originalRequest, hostName, addressCache, fileName);
 				bzero(buffer,sizeof(buffer));
 			}
 			close(connectionSock);
@@ -160,13 +220,14 @@ void INThandler(int sig)
 	exit(0);
 }
 
-void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache)
+void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char* fileName)
 {
 
 	int remoteSock, len, nbytes;
 	char buffer[MAXBUFSIZE];
 	struct hostent* remoteHost;
 	struct sockaddr_in remote_addr;
+	FILE* fd;
 
 	remoteSock = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -187,10 +248,6 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		printf("remoteHost: %s\n", hostName);
 		insert(addressCache, hostName, remoteHost);
 	}
-	else {
-		printf("HIT\n");
-		printf("remoteHost: %s\n", hostName);
-	}
 
 	bzero((char *) &remote_addr, sizeof(remote_addr));
 	remote_addr.sin_family = AF_INET;
@@ -207,15 +264,43 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 	len = write(remoteSock, request, strlen(request));
 
 	//Receive Response
-	bzero(buffer,sizeof(buffer));
-	while(1) {
-		nbytes = read(remoteSock, buffer, MAXBUFSIZE);
-		if(nbytes == 0) {
-			break;
+	printf("Opening file: %s %i\n", fileName, strlen(fileName));
+	if(strlen(fileName) != 0) {
+		fd = fopen(fileName, "w+");
+		if(fd == NULL) {
+			printf("Error opening file...\n");
+			exit(0);
 		}
-		len = send(connectionSock, buffer, nbytes, 0);
 		bzero(buffer,sizeof(buffer));
+		while(1) {
+			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
+			if(nbytes == 0) {
+				break;
+			}
+			printf("BUFFER: %s\n", buffer);
+			printf("calling fputs...\n");
+			//fputs((char *)buffer, fd);
+			fprintf(fd, buffer);
+			printf("BUFFER: %s\n", buffer);
+			//write(fd, buffer, nbytes)
+			len = send(connectionSock, buffer, nbytes, 0);
+			bzero(buffer,sizeof(buffer));
+		}
 	}
+	else {
+		bzero(buffer,sizeof(buffer));
+		while(1) {
+			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
+			if(nbytes == 0) {
+				break;
+			}
+			len = send(connectionSock, buffer, nbytes, 0);
+			bzero(buffer,sizeof(buffer));
+		}
+		printf("outside of the loop\n");
+		close(remoteSock);
+	}
+	fclose(fd);
 	printf("outside of the loop\n");
 	close(remoteSock);
 
