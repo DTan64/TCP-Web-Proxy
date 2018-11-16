@@ -25,7 +25,8 @@
 int listening = 1;
 
 typedef struct {
-	pthread_mutex_t mutex;
+	pthread_mutex_t addressLock;
+	pthread_mutex_t pageLock;
 } shared_data;
 
 static shared_data* data = NULL;
@@ -79,7 +80,12 @@ int main(int argc, char* argv[])
 	pthread_mutexattr_t attr;
   pthread_mutexattr_init(&attr);
   pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
-  pthread_mutex_init(&data->mutex, &attr);
+  pthread_mutex_init(&data->addressLock, &attr);
+
+	pthread_mutexattr_t attr1;
+  pthread_mutexattr_init(&attr1);
+  pthread_mutexattr_setpshared(&attr1, PTHREAD_PROCESS_SHARED);
+  pthread_mutex_init(&data->pageLock, &attr1);
 	// struct timeval tv;
 	//
 	// typedef struct Page {
@@ -286,7 +292,6 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 	}
 
   //pthread_mutex_lock(&addressLock);
-	pthread_mutex_lock(&data->mutex);
 	remoteHost = search(addressCache, hostName);
 	if(remoteHost == NULL) {
 		printf("MISS\n");
@@ -297,9 +302,10 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		}
 		printf("Caching...\n");
 		printf("remoteHost: %s\n", hostName);
+		pthread_mutex_lock(&data->addressLock);
 		insert(addressCache, hostName, remoteHost);
+		pthread_mutex_unlock(&data->addressLock);
 	}
-	pthread_mutex_unlock(&data->mutex);
   //pthread_mutex_unlock(&addressLock);
 
 	bzero((char *) &remote_addr, sizeof(remote_addr));
@@ -315,30 +321,6 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 
 	len = write(remoteSock, request, strlen(request));
 	//Receive Response
-	// printf("Opening file: %s %i\n", fileName, strlen(fileName));
-	// if(strlen(fileName) != 0) {
-	// 	fd = fopen(fileName, "w+");
-	// 	if(fd == NULL) {
-	// 		printf("Error opening file...\n");
-	// 		exit(0);
-	// 	}
-	// 	bzero(buffer,sizeof(buffer));
-	// 	while(1) {
-	// 		nbytes = read(remoteSock, buffer, MAXBUFSIZE);
-	// 		if(nbytes == 0) {
-	// 			break;
-	// 		}
-	// 		printf("BUFFER: %s\n", buffer);
-	// 		//printf("calling fputs...\n");
-	// 		//fputs((char *)buffer, fd);
-	// 		//fprintf(fd, "%s", buffer);
-	// 		printf("BUFFER: %s\n", buffer);
-	// 		//write(fd, buffer, nbytes)
-	// 		len = send(connectionSock, buffer, nbytes, 0);
-	// 		bzero(buffer,sizeof(buffer));
-	// 	}
-	// }
-	// else {
 	bzero(buffer,sizeof(buffer));
 	while(1) {
 		nbytes = read(remoteSock, buffer, MAXBUFSIZE);
@@ -349,8 +331,6 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		len = send(connectionSock, buffer, nbytes, 0);
 		bzero(buffer,sizeof(buffer));
 	}
-	//}
-	//fclose(fd);
 	printf("outside of the loop\n");
 	close(remoteSock);
 
