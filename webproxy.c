@@ -15,11 +15,20 @@
 #include <stdbool.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include<pthread.h>
+#include <sys/mman.h>
+#include <assert.h>
 #include "hashTable.h"
 /* You will have to modify the program below */
 
 #define MAXBUFSIZE 2048
 int listening = 1;
+
+typedef struct {
+	pthread_mutex_t mutex;
+} shared_data;
+
+static shared_data* data = NULL;
 
 typedef struct Page {
 	int timeout;
@@ -61,6 +70,32 @@ int main(int argc, char* argv[])
 	int client_length = sizeof(client_addr);
 	HashTable* addressCache = createTable(50);
 
+  //pthread_mutex_init(&addressLock, NULL);
+	int prot = PROT_READ | PROT_WRITE;
+  int flags = MAP_SHARED | MAP_ANONYMOUS;
+  data = mmap(NULL, sizeof(shared_data), prot, flags, -1, 0);
+  assert(data);
+
+	pthread_mutexattr_t attr;
+  pthread_mutexattr_init(&attr);
+  pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+  pthread_mutex_init(&data->mutex, &attr);
+	// struct timeval tv;
+	//
+	// typedef struct Page {
+	// 	int timeout;
+	// 	char* name;
+	// 	FILE* fd;
+	// } Page;
+	//
+	// typedef struct PageCache {
+	// 	Page** pages;
+	// 	int size;
+	// } PageCache;
+	//
+	// Page* tmp = malloc(sizeof(Page));
+	// PageCache Book;
+	// Book.pages = calloc(10, sizeof(Page));
 
 
 	// Page* tmpPage = malloc(sizeof(Page));
@@ -155,13 +190,13 @@ int main(int argc, char* argv[])
 			close(sock);
 
 			while((nbytes = read(connectionSock, buffer, MAXBUFSIZE)) > 0) {
-				printf("BUFFER: %s\n", buffer);
+				//printf("BUFFER: %s\n", buffer);
 
 				sprintf(originalRequest, "%s", buffer);
 				header = strtok_r(buffer, "\r\n\r\n", &saveptr);
 				printf("HEADER: %s\n", header);
 				method = strtok_r(header, " ", &saveptr);
-				printf("METHOD: %s\n", method);
+				//printf("METHOD: %s\n", method);
 
 				if(strcmp(method, "GET")) {
           write(connectionSock, err_500, strlen(err_500));
@@ -172,12 +207,12 @@ int main(int argc, char* argv[])
 				char tmp[MAXBUFSIZE];
 				char fileName[MAXBUFSIZE];
 				fullAddress = strtok_r(NULL, " ", &saveptr);
-				printf("fullAddress: %s\n", fullAddress);
+				//printf("fullAddress: %s\n", fullAddress);
 				sprintf(tmp, "%s", fullAddress);
 				protocol = strtok_r(fullAddress, "://", &saveptr);
-				printf("PROTOCOL: %s\n", protocol);
+				//printf("PROTOCOL: %s\n", protocol);
 				hostName = strtok_r(NULL, "/", &saveptr);
-				printf("HOST: %s\n", hostName);
+				//printf("HOST: %s\n", hostName);
 
 				// Get file name
 				int fileStart = 0;
@@ -205,6 +240,10 @@ int main(int argc, char* argv[])
 					}
 				}
 
+
+				//printf("FileName: %s\n", fileName);
+
+				// TODO: Implement caching
 				if(blackList(hostName) == true) {
           write(connectionSock, err_403, strlen(err_403));
 					bzero(buffer,sizeof(buffer));
@@ -246,6 +285,8 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		exit(-1);
 	}
 
+  //pthread_mutex_lock(&addressLock);
+	pthread_mutex_lock(&data->mutex);
 	remoteHost = search(addressCache, hostName);
 	if(remoteHost == NULL) {
 		printf("MISS\n");
@@ -258,6 +299,8 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		printf("remoteHost: %s\n", hostName);
 		insert(addressCache, hostName, remoteHost);
 	}
+	pthread_mutex_unlock(&data->mutex);
+  //pthread_mutex_unlock(&addressLock);
 
 	bzero((char *) &remote_addr, sizeof(remote_addr));
 	remote_addr.sin_family = AF_INET;
@@ -270,89 +313,44 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		 exit(-1);
 	}
 
-
-	// is this the right order?
-	// TODO: Check if file is cahced before forwarding request
-	int cacheHit = -1;
-	if(strlen(fileName) != 0) {
-		cacheHit = checkPageCache(book, (char*)fileName);
-	}
-
-	printf("Cache hit? %i\n", cacheHit);
-	if(cacheHit >= 0) {
-		printf("CACHE HIT! %s\n", book->pages[cacheHit]->name);
-		for(int i = 0; i < book->size; i++) {
-			if(book->pages[i] == NULL) {
-				continue;
-			}
-			printf("book: %s\n", book->pages[i]->name);
+	len = write(remoteSock, request, strlen(request));
+	//Receive Response
+	// printf("Opening file: %s %i\n", fileName, strlen(fileName));
+	// if(strlen(fileName) != 0) {
+	// 	fd = fopen(fileName, "w+");
+	// 	if(fd == NULL) {
+	// 		printf("Error opening file...\n");
+	// 		exit(0);
+	// 	}
+	// 	bzero(buffer,sizeof(buffer));
+	// 	while(1) {
+	// 		nbytes = read(remoteSock, buffer, MAXBUFSIZE);
+	// 		if(nbytes == 0) {
+	// 			break;
+	// 		}
+	// 		printf("BUFFER: %s\n", buffer);
+	// 		//printf("calling fputs...\n");
+	// 		//fputs((char *)buffer, fd);
+	// 		//fprintf(fd, "%s", buffer);
+	// 		printf("BUFFER: %s\n", buffer);
+	// 		//write(fd, buffer, nbytes)
+	// 		len = send(connectionSock, buffer, nbytes, 0);
+	// 		bzero(buffer,sizeof(buffer));
+	// 	}
+	// }
+	// else {
+	bzero(buffer,sizeof(buffer));
+	while(1) {
+		nbytes = read(remoteSock, buffer, MAXBUFSIZE);
+		if(nbytes == 0) {
+			break;
 		}
-		printf("Sending cached data...\n");
-
-		fp = open(book->pages[cacheHit]->name, O_RDONLY);
-		if(fp < 0) {
-			printf("Error opening file.\n");
-			exit(0);
-		}
-
+		//printf("DATA: %s\n", buffer);
+		len = send(connectionSock, buffer, nbytes, 0);
 		bzero(buffer,sizeof(buffer));
-		while(1) {
-			readBytes = read(fp, buffer, sizeof(buffer));
-			if(readBytes == 0) {
-				break;
-			}
-			printf("SendingC: %s\n", buffer);
-			len = send(connectionSock, buffer, readBytes, 0);
-			bzero(buffer,sizeof(buffer));
-		}
-		//close(fp);
-		// printf("outside of the loop\n");
-		// close(remoteSock);
-		// return;
-
-
 	}
-	else {
-		//Forward Request
-		len = write(remoteSock, request, strlen(request));
-
-		//Receive Response
-		if(strlen(fileName) != 0 ) {
-			fd = fopen(fileName, "w+");
-			if(fd == NULL) {
-				printf("Error opening file...\n");
-				exit(0);
-			}
-			bzero(buffer,sizeof(buffer));
-
-			while(1) {
-				nbytes = read(remoteSock, buffer, MAXBUFSIZE);
-				if(nbytes == 0) {
-					break;
-				}
-				fprintf(fd, "%s", buffer);
-				len = send(connectionSock, buffer, nbytes, 0);
-				bzero(buffer,sizeof(buffer));
-			}
-			// TODO: add file to cache
-			insertPageCache(book, (char*)fileName);
-		}
-		else {
-			printf("In no filename loop...\n");
-			bzero(buffer,sizeof(buffer));
-			while(1) {
-				nbytes = read(remoteSock, buffer, MAXBUFSIZE);
-				if(nbytes == 0) {
-					break;
-				}
-				len = send(connectionSock, buffer, nbytes, 0);
-				bzero(buffer,sizeof(buffer));
-			}
-		}
-	}
-
-
-	fclose(fd);
+	//}
+	//fclose(fd);
 	printf("outside of the loop\n");
 	close(remoteSock);
 
