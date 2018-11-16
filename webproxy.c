@@ -15,11 +15,13 @@
 #include <stdbool.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include<pthread.h>
 #include "hashTable.h"
 /* You will have to modify the program below */
 
 #define MAXBUFSIZE 2048
 int listening = 1;
+pthread_mutex_t addressLock;
 
 void INThandler(int sig);
 void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char fileName[MAXBUFSIZE]);
@@ -48,6 +50,7 @@ int main(int argc, char* argv[])
 	char err_403[] = "HTTP/1.1 403 Forbidden\r\n\r\n" "ERROR 403 Forbidden.";
 	int client_length = sizeof(client_addr);
 	HashTable* addressCache = createTable(50);
+  pthread_mutex_init(&addressLock, NULL);
 	// struct timeval tv;
 	//
 	// typedef struct Page {
@@ -236,6 +239,7 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		exit(-1);
 	}
 
+  pthread_mutex_lock(&addressLock);
 	remoteHost = search(addressCache, hostName);
 	if(remoteHost == NULL) {
 		printf("MISS\n");
@@ -248,6 +252,7 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		printf("remoteHost: %s\n", hostName);
 		insert(addressCache, hostName, remoteHost);
 	}
+  pthread_mutex_unlock(&addressLock);
 
 	bzero((char *) &remote_addr, sizeof(remote_addr));
 	remote_addr.sin_family = AF_INET;
