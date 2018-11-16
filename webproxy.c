@@ -21,9 +21,21 @@
 #define MAXBUFSIZE 2048
 int listening = 1;
 
+typedef struct Page {
+	int timeout;
+	char* name;
+} Page;
+
+typedef struct PageCache {
+	Page** pages;
+	int size;
+} PageCache;
+
 void INThandler(int sig);
-void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char fileName[MAXBUFSIZE]);
+void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char fileName[MAXBUFSIZE], PageCache* book);
 int blackList(char* hostname);
+int checkPageCache(PageCache* book, char* fileName);
+void insertPageCache(PageCache* book, char* fileName);
 
 int main(int argc, char* argv[])
 {
@@ -48,22 +60,22 @@ int main(int argc, char* argv[])
 	char err_403[] = "HTTP/1.1 403 Forbidden\r\n\r\n" "ERROR 403 Forbidden.";
 	int client_length = sizeof(client_addr);
 	HashTable* addressCache = createTable(50);
-	// struct timeval tv;
-	//
-	// typedef struct Page {
-	// 	int timeout;
-	// 	char* name;
-	// 	FILE* fd;
-	// } Page;
-	//
-	// typedef struct PageCache {
-	// 	Page** pages;
-	// 	int size;
-	// } PageCache;
-	//
-	// Page* tmp = malloc(sizeof(Page));
-	// PageCache Book;
-	// Book.pages = calloc(10, sizeof(Page));
+
+
+
+	// Page* tmpPage = malloc(sizeof(Page));
+	// book->pages = calloc(10, sizeof(Page));
+	// book->size = 10;
+	// book->timeout = atoi(argv[2]);
+	// book->pages[0] = tmpPage;
+	// Page* tmpPage2 = malloc(sizeof(Page));
+	// tmpPage2->name = "stanLee";
+	// book->pages[9] = tmpPage2;
+
+	PageCache* book = malloc(sizeof(PageCache));
+	book->pages = calloc(10, sizeof(Page));
+	book->size = 10;
+
 	// gettimeofday(&tv, NULL);
 	// tmp->timeout = tv.tv_sec;
 	// printf("Timeout: %i\n", tmp->timeout);
@@ -71,9 +83,10 @@ int main(int argc, char* argv[])
 	// gettimeofday(&tv,NULL);
 	// printf("Current time: %i\n", tv.tv_sec - tmp->timeout);
 	//
-	// Book.pages[0] = tmp;
-	// printf("First Page: %i\n", Book.pages[0]->timeout);
+	// book.pages[0] = tmp;
+	// printf("First Page: %i\n", book.pages[0]->timeout);
 	// printf("Timeout: %i\n", tmp->timeout);
+	// return -1;
 
 
 
@@ -192,17 +205,13 @@ int main(int argc, char* argv[])
 					}
 				}
 
-
-				printf("FileName: %s\n", fileName);
-
-				// TODO: Implement caching
 				if(blackList(hostName) == true) {
           write(connectionSock, err_403, strlen(err_403));
 					bzero(buffer,sizeof(buffer));
 					exit(0);
 				}
 
-				handleRequest(connectionSock, originalRequest, hostName, addressCache, fileName);
+				handleRequest(connectionSock, originalRequest, hostName, addressCache, fileName, book);
 				bzero(buffer,sizeof(buffer));
 			}
 			close(connectionSock);
@@ -220,13 +229,14 @@ void INThandler(int sig)
 	exit(0);
 }
 
-void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char* fileName)
+void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char fileName[MAXBUFSIZE], PageCache* book)
 {
 
-	int remoteSock, len, nbytes;
+	int remoteSock, len, nbytes, readBytes;
 	char buffer[MAXBUFSIZE];
 	struct hostent* remoteHost;
 	struct sockaddr_in remote_addr;
+	int fp;
 	FILE* fd;
 
 	remoteSock = socket(AF_INET, SOCK_STREAM, 0);
@@ -260,46 +270,88 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		 exit(-1);
 	}
 
-	//Forward Request
-	len = write(remoteSock, request, strlen(request));
 
-	//Receive Response
-	printf("Opening file: %s %i\n", fileName, strlen(fileName));
+	// is this the right order?
+	// TODO: Check if file is cahced before forwarding request
+	int cacheHit = -1;
 	if(strlen(fileName) != 0) {
-		fd = fopen(fileName, "w+");
-		if(fd == NULL) {
-			printf("Error opening file...\n");
+		cacheHit = checkPageCache(book, (char*)fileName);
+	}
+
+	printf("Cache hit? %i\n", cacheHit);
+	if(cacheHit >= 0) {
+		printf("CACHE HIT! %s\n", book->pages[cacheHit]->name);
+		for(int i = 0; i < book->size; i++) {
+			if(book->pages[i] == NULL) {
+				continue;
+			}
+			printf("book: %s\n", book->pages[i]->name);
+		}
+		printf("Sending cached data...\n");
+
+		fp = open(book->pages[cacheHit]->name, O_RDONLY);
+		if(fp < 0) {
+			printf("Error opening file.\n");
 			exit(0);
 		}
+
 		bzero(buffer,sizeof(buffer));
 		while(1) {
-			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
-			if(nbytes == 0) {
+			readBytes = read(fp, buffer, sizeof(buffer));
+			if(readBytes == 0) {
 				break;
 			}
-			printf("BUFFER: %s\n", buffer);
-			printf("calling fputs...\n");
-			//fputs((char *)buffer, fd);
-			fprintf(fd, buffer);
-			printf("BUFFER: %s\n", buffer);
-			//write(fd, buffer, nbytes)
-			len = send(connectionSock, buffer, nbytes, 0);
+			printf("SendingC: %s\n", buffer);
+			len = send(connectionSock, buffer, readBytes, 0);
 			bzero(buffer,sizeof(buffer));
 		}
+		//close(fp);
+		// printf("outside of the loop\n");
+		// close(remoteSock);
+		// return;
+
+
 	}
 	else {
-		bzero(buffer,sizeof(buffer));
-		while(1) {
-			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
-			if(nbytes == 0) {
-				break;
+		//Forward Request
+		len = write(remoteSock, request, strlen(request));
+
+		//Receive Response
+		if(strlen(fileName) != 0 ) {
+			fd = fopen(fileName, "w+");
+			if(fd == NULL) {
+				printf("Error opening file...\n");
+				exit(0);
 			}
-			len = send(connectionSock, buffer, nbytes, 0);
 			bzero(buffer,sizeof(buffer));
+
+			while(1) {
+				nbytes = read(remoteSock, buffer, MAXBUFSIZE);
+				if(nbytes == 0) {
+					break;
+				}
+				fprintf(fd, "%s", buffer);
+				len = send(connectionSock, buffer, nbytes, 0);
+				bzero(buffer,sizeof(buffer));
+			}
+			// TODO: add file to cache
+			insertPageCache(book, (char*)fileName);
 		}
-		printf("outside of the loop\n");
-		close(remoteSock);
+		else {
+			printf("In no filename loop...\n");
+			bzero(buffer,sizeof(buffer));
+			while(1) {
+				nbytes = read(remoteSock, buffer, MAXBUFSIZE);
+				if(nbytes == 0) {
+					break;
+				}
+				len = send(connectionSock, buffer, nbytes, 0);
+				bzero(buffer,sizeof(buffer));
+			}
+		}
 	}
+
+
 	fclose(fd);
 	printf("outside of the loop\n");
 	close(remoteSock);
@@ -333,5 +385,63 @@ int blackList(char* hostName)
 	}
 	fclose(fd);
 	return false;
+
+}
+
+// Returns index of page cache if hit otherwise -1
+int checkPageCache(PageCache* book, char* fileName)
+{
+	printf("checkin cache for: %s\n", fileName);
+	for(int i = 0; i < book->size; i++) {
+		printf("pointer: %p\n", book->pages[i]);
+		if(book->pages[i] != NULL) {
+			printf("Book name: %s\n", book->pages[i]->name);
+			printf("Compare Value: %i\n", strcmp(book->pages[i]->name, fileName));
+			if(!strcmp(book->pages[i]->name, fileName)) {
+				printf("I value: %i\n", i);
+				return i;
+			}
+
+		}
+		else continue;
+	}
+	return -1;
+
+}
+
+void insertPageCache(PageCache* book, char* fileName)
+{
+
+	struct timeval tv;
+	Page* tmp = malloc(sizeof(Page));
+	tmp->name = fileName;
+	gettimeofday(&tv, NULL);
+	tmp->timeout = tv.tv_sec;
+
+	int nullIndex = -1;
+	int i;
+
+
+	for(i = 0; i < book->size; i++) {
+		printf("I: %i\n", i);
+		if(book->pages[i] != NULL) {
+			printf("book: %s\n", book->pages[i]->name);
+			continue;
+		}
+		else {
+			nullIndex = i;
+			break;
+		}
+	}
+
+	if(nullIndex != -1) {
+		printf("Inserting into: %i\n", nullIndex);
+		book->pages[nullIndex] = tmp;
+		printf("Book at %i: %s\n", nullIndex, book->pages[nullIndex]->name);
+	}
+	else {
+		free(book->pages[0]);
+		book->pages[book->size - 1] = tmp;
+	}
 
 }
