@@ -16,12 +16,20 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include<pthread.h>
+#include <sys/mman.h>
+#include <assert.h>
 #include "hashTable.h"
 /* You will have to modify the program below */
 
 #define MAXBUFSIZE 2048
 int listening = 1;
-pthread_mutex_t addressLock;
+
+typedef struct {
+	pthread_mutex_t mutex;
+} shared_data;
+
+static shared_data* data = NULL;
+
 
 void INThandler(int sig);
 void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char fileName[MAXBUFSIZE]);
@@ -50,7 +58,17 @@ int main(int argc, char* argv[])
 	char err_403[] = "HTTP/1.1 403 Forbidden\r\n\r\n" "ERROR 403 Forbidden.";
 	int client_length = sizeof(client_addr);
 	HashTable* addressCache = createTable(50);
-  pthread_mutex_init(&addressLock, NULL);
+
+  //pthread_mutex_init(&addressLock, NULL);
+	int prot = PROT_READ | PROT_WRITE;
+  int flags = MAP_SHARED | MAP_ANONYMOUS;
+  data = mmap(NULL, sizeof(shared_data), prot, flags, -1, 0);
+  assert(data);
+
+	pthread_mutexattr_t attr;
+  pthread_mutexattr_init(&attr);
+  pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+  pthread_mutex_init(&data->mutex, &attr);
 	// struct timeval tv;
 	//
 	// typedef struct Page {
@@ -145,13 +163,13 @@ int main(int argc, char* argv[])
 			close(sock);
 
 			while((nbytes = read(connectionSock, buffer, MAXBUFSIZE)) > 0) {
-				printf("BUFFER: %s\n", buffer);
+				//printf("BUFFER: %s\n", buffer);
 
 				sprintf(originalRequest, "%s", buffer);
 				header = strtok_r(buffer, "\r\n\r\n", &saveptr);
 				printf("HEADER: %s\n", header);
 				method = strtok_r(header, " ", &saveptr);
-				printf("METHOD: %s\n", method);
+				//printf("METHOD: %s\n", method);
 
 				if(strcmp(method, "GET")) {
           write(connectionSock, err_500, strlen(err_500));
@@ -162,12 +180,12 @@ int main(int argc, char* argv[])
 				char tmp[MAXBUFSIZE];
 				char fileName[MAXBUFSIZE];
 				fullAddress = strtok_r(NULL, " ", &saveptr);
-				printf("fullAddress: %s\n", fullAddress);
+				//printf("fullAddress: %s\n", fullAddress);
 				sprintf(tmp, "%s", fullAddress);
 				protocol = strtok_r(fullAddress, "://", &saveptr);
-				printf("PROTOCOL: %s\n", protocol);
+				//printf("PROTOCOL: %s\n", protocol);
 				hostName = strtok_r(NULL, "/", &saveptr);
-				printf("HOST: %s\n", hostName);
+				//printf("HOST: %s\n", hostName);
 
 				// Get file name
 				int fileStart = 0;
@@ -196,7 +214,7 @@ int main(int argc, char* argv[])
 				}
 
 
-				printf("FileName: %s\n", fileName);
+				//printf("FileName: %s\n", fileName);
 
 				// TODO: Implement caching
 				if(blackList(hostName) == true) {
@@ -239,7 +257,8 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		exit(-1);
 	}
 
-  pthread_mutex_lock(&addressLock);
+  //pthread_mutex_lock(&addressLock);
+	pthread_mutex_lock(&data->mutex);
 	remoteHost = search(addressCache, hostName);
 	if(remoteHost == NULL) {
 		printf("MISS\n");
@@ -252,7 +271,8 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		printf("remoteHost: %s\n", hostName);
 		insert(addressCache, hostName, remoteHost);
 	}
-  pthread_mutex_unlock(&addressLock);
+	pthread_mutex_unlock(&data->mutex);
+  //pthread_mutex_unlock(&addressLock);
 
 	bzero((char *) &remote_addr, sizeof(remote_addr));
 	remote_addr.sin_family = AF_INET;
@@ -269,43 +289,42 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 	len = write(remoteSock, request, strlen(request));
 
 	//Receive Response
-	printf("Opening file: %s %i\n", fileName, strlen(fileName));
-	if(strlen(fileName) != 0) {
-		fd = fopen(fileName, "w+");
-		if(fd == NULL) {
-			printf("Error opening file...\n");
-			exit(0);
+	// printf("Opening file: %s %i\n", fileName, strlen(fileName));
+	// if(strlen(fileName) != 0) {
+	// 	fd = fopen(fileName, "w+");
+	// 	if(fd == NULL) {
+	// 		printf("Error opening file...\n");
+	// 		exit(0);
+	// 	}
+	// 	bzero(buffer,sizeof(buffer));
+	// 	while(1) {
+	// 		nbytes = read(remoteSock, buffer, MAXBUFSIZE);
+	// 		if(nbytes == 0) {
+	// 			break;
+	// 		}
+	// 		printf("BUFFER: %s\n", buffer);
+	// 		//printf("calling fputs...\n");
+	// 		//fputs((char *)buffer, fd);
+	// 		//fprintf(fd, "%s", buffer);
+	// 		printf("BUFFER: %s\n", buffer);
+	// 		//write(fd, buffer, nbytes)
+	// 		len = send(connectionSock, buffer, nbytes, 0);
+	// 		bzero(buffer,sizeof(buffer));
+	// 	}
+	// }
+	// else {
+	bzero(buffer,sizeof(buffer));
+	while(1) {
+		nbytes = read(remoteSock, buffer, MAXBUFSIZE);
+		if(nbytes == 0) {
+			break;
 		}
+		//printf("DATA: %s\n", buffer);
+		len = send(connectionSock, buffer, nbytes, 0);
 		bzero(buffer,sizeof(buffer));
-		while(1) {
-			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
-			if(nbytes == 0) {
-				break;
-			}
-			printf("BUFFER: %s\n", buffer);
-			printf("calling fputs...\n");
-			//fputs((char *)buffer, fd);
-			fprintf(fd, buffer);
-			printf("BUFFER: %s\n", buffer);
-			//write(fd, buffer, nbytes)
-			len = send(connectionSock, buffer, nbytes, 0);
-			bzero(buffer,sizeof(buffer));
-		}
 	}
-	else {
-		bzero(buffer,sizeof(buffer));
-		while(1) {
-			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
-			if(nbytes == 0) {
-				break;
-			}
-			len = send(connectionSock, buffer, nbytes, 0);
-			bzero(buffer,sizeof(buffer));
-		}
-		printf("outside of the loop\n");
-		close(remoteSock);
-	}
-	fclose(fd);
+	//}
+	//fclose(fd);
 	printf("outside of the loop\n");
 	close(remoteSock);
 
