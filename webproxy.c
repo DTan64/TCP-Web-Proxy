@@ -19,11 +19,80 @@
 /* You will have to modify the program below */
 
 #define MAXBUFSIZE 2048
+#define HUGEBUFSIZE 131072
 int listening = 1;
 
 void INThandler(int sig);
 void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char fileName[MAXBUFSIZE]);
 int blackList(char* hostname);
+
+
+int header_read(int server_sock, char *buffer, int buffer_length) {
+    int i = 0;
+    char ch = '\0';
+    int nbytes;
+    //Read char by char until end of line
+    while (i < (buffer_length - 1) && (ch != '\n')) {
+        nbytes = recv(server_sock, &ch, 1, 0);
+        if (nbytes > 0) {
+            if (ch == '\r') {
+                nbytes = recv(server_sock, &ch, 1, MSG_PEEK);
+                if ((nbytes > 0) && (ch == '\n')) {
+                    recv(server_sock, &ch, 1, 0);
+                }
+                else {
+                    ch = '\n';
+                }
+            }
+            buffer[i] = ch;
+            i++;
+        }
+        else {
+            ch = '\n';
+        }
+    }
+    buffer[i] = '\0';
+    return i;
+}
+
+int server_receive(int server_sock, char *buf) {
+    char msgBuffer[HUGEBUFSIZE];
+    int contentLength = 0;
+    unsigned int offset = 0;
+    while (1) {
+        int length = header_read(server_sock, msgBuffer, HUGEBUFSIZE);
+        if(length <= 0) {
+            return -1;
+        }
+
+        memcpy((buf + offset), msgBuffer, length);
+        offset += length;
+        if (strlen(msgBuffer) == 1) {
+            break;
+        }
+        if (strncmp(msgBuffer, "Content-Length", strlen("Content-Length")) == 0) {
+            char s1[256];
+            sscanf(msgBuffer, "%*s %s", s1);
+            contentLength = atoi(s1);
+        }
+    }
+    char* contentBuffer = malloc((contentLength * sizeof(char)) + 3);
+    int i;
+    for (i = 0; i < contentLength; i++) {
+        char c;
+        int nbytes = recv(server_sock, &c, 1, 0);
+        if (nbytes <= 0) {
+            return -1;
+        }
+        contentBuffer[i] = c;
+    }
+    contentBuffer[i + 1] = '\r';
+    contentBuffer[i + 2] = '\n';
+    contentBuffer[i + 3] = '\0';
+		printf("Conent Buffer: %s\n", contentBuffer);
+    memcpy((buf + offset), contentBuffer, (contentLength + 3));
+    return (offset + i + 4);
+}
 
 int main(int argc, char* argv[])
 {
@@ -142,13 +211,13 @@ int main(int argc, char* argv[])
 			close(sock);
 
 			while((nbytes = read(connectionSock, buffer, MAXBUFSIZE)) > 0) {
-				printf("BUFFER: %s\n", buffer);
+				printf("REQUEST: %s\n", buffer);
 
 				sprintf(originalRequest, "%s", buffer);
 				header = strtok_r(buffer, "\r\n\r\n", &saveptr);
-				printf("HEADER: %s\n", header);
+				//printf("HEADER: %s\n", header);
 				method = strtok_r(header, " ", &saveptr);
-				printf("METHOD: %s\n", method);
+				//printf("METHOD: %s\n", method);
 
 				if(strcmp(method, "GET")) {
           write(connectionSock, err_500, strlen(err_500));
@@ -162,9 +231,9 @@ int main(int argc, char* argv[])
 				printf("fullAddress: %s\n", fullAddress);
 				sprintf(tmp, "%s", fullAddress);
 				protocol = strtok_r(fullAddress, "://", &saveptr);
-				printf("PROTOCOL: %s\n", protocol);
+				//printf("PROTOCOL: %s\n", protocol);
 				hostName = strtok_r(NULL, "/", &saveptr);
-				printf("HOST: %s\n", hostName);
+				//printf("HOST: %s\n", hostName);
 
 				// Get file name
 				int fileStart = 0;
@@ -193,7 +262,7 @@ int main(int argc, char* argv[])
 				}
 
 
-				printf("FileName: %s\n", fileName);
+				//printf("FileName: %s\n", fileName);
 
 				// TODO: Implement caching
 				if(blackList(hostName) == true) {
@@ -263,45 +332,81 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 	//Forward Request
 	len = write(remoteSock, request, strlen(request));
 
-	//Receive Response
-	printf("Opening file: %s %i\n", fileName, strlen(fileName));
-	if(strlen(fileName) != 0) {
-		fd = fopen(fileName, "w+");
+	// //Receive Response
+	// bzero(buffer,sizeof(buffer));
+	// while(1) {
+	// 	nbytes = read(remoteSock, buffer, MAXBUFSIZE);
+	// 	if(nbytes == 0) {
+	// 		break;
+	// 	}
+	// 	printf("DATA: %s\n", buffer);
+	// 	//len = send(connectionSock, buffer, nbytes, 0);
+	// 	bzero(buffer,sizeof(buffer));
+	// }
+	// fclose(fd);
+	// printf("outside of the loop\n");
+	int readBytes;
+	if(!strcmp(fileName, "")) {
+		printf("hit\n");
+		//TODO:check if exsists and send request to server if you do.
+		printf("Opening... %s\n", hostName);
+		// why is this not working
+		fd = fopen("test.txt", "r");
 		if(fd == NULL) {
-			printf("Error opening file...\n");
+			printf("Error opening file...%s\n", fileName);
 			exit(0);
 		}
 		bzero(buffer,sizeof(buffer));
 		while(1) {
-			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
-			if(nbytes == 0) {
+			printf("About to READ!\n");
+			readBytes = fread(buffer, sizeof(buffer), 1, fd);
+			if(readBytes <= 0) {
+				ferror(fd);
+				if( ferror(fd) ) {
+	      printf("Error in reading from file : file.txt\n");
+	   		}
 				break;
 			}
-			printf("BUFFER: %s\n", buffer);
-			printf("calling fputs...\n");
-			//fputs((char *)buffer, fd);
-			fprintf(fd, buffer);
-			printf("BUFFER: %s\n", buffer);
-			//write(fd, buffer, nbytes)
-			len = send(connectionSock, buffer, nbytes, 0);
+			printf("READING: %s %i\n", buffer, readBytes);
+			len = send(connectionSock, buffer, readBytes, 0);
 			bzero(buffer,sizeof(buffer));
 		}
 	}
 	else {
+		// works but not for gzip encoding.
+
+		if(!strcmp(fileName, "")) {
+			printf("No filename.............\n");
+			fd = fopen(hostName, "w+");
+			if(fd == NULL) {
+				printf("Error opening file...%s\n", fileName);
+				exit(0);
+			}
+		}
+		else {
+			fd = fopen(fileName, "w+");
+			if(fd == NULL) {
+				printf("Error opening file...%s\n", fileName);
+				exit(0);
+			}
+		}
+
 		bzero(buffer,sizeof(buffer));
 		while(1) {
 			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
 			if(nbytes == 0) {
 				break;
 			}
+			printf("DATA: %s\n", buffer);
+			//readBytes = read(fd, buffer, MAXBUFSIZE);
+			fprintf(fd, "%s", buffer);
 			len = send(connectionSock, buffer, nbytes, 0);
 			bzero(buffer,sizeof(buffer));
 		}
-		printf("outside of the loop\n");
-		close(remoteSock);
 	}
+
+	printf("Outside loop....\n");
 	fclose(fd);
-	printf("outside of the loop\n");
 	close(remoteSock);
 
 }
