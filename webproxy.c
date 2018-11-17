@@ -359,17 +359,22 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		bzero(buffer,sizeof(buffer));
 		while(1) {
 			printf("About to READ!\n");
-			readBytes = fread(buffer, sizeof(buffer), 1, fd);
-			if(readBytes <= 0) {
-				ferror(fd);
-				if( ferror(fd) ) {
-	      printf("Error in reading from file : file.txt\n");
-	   		}
-				break;
-			}
-			printf("READING: %s %i\n", buffer, readBytes);
-			len = send(connectionSock, buffer, readBytes, 0);
-			bzero(buffer,sizeof(buffer));
+			//readBytes = fread(buffer, sizeof(buffer), 1, fd);
+      readBytes = fgetc(fd);
+      if( feof(fd) ) {
+         break ;
+      }
+      // printf("%c", c);
+			// if(readBytes <= 0) {
+			// 	ferror(fd);
+			// 	if( ferror(fd) ) {
+	    //   printf("Error in reading from file : file.txt\n");
+	   	// 	}
+			// 	break;
+			// }
+			// printf("READING: %s %i\n", buffer, readBytes);
+			// len = send(connectionSock, buffer, readBytes, 0);
+			// bzero(buffer,sizeof(buffer));
 		}
 	}
 	else {
