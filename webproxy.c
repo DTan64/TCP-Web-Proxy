@@ -293,61 +293,60 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
     else {
       cacheSend(connectionSock, fileName);
     }
-    printf("Returning from cache hit...\n");
-  	close(remoteSock);
-    printf("about to return\n");
-    return;
+  }
+  else {
+    //Forward Request
+  	len = write(remoteSock, request, strlen(request));
+
+
+    // Request page from server and put in cache
+  	if(!strcmp(fileName, "")) {
+      // works but not for gzip encoding.
+  		fd = fopen(hostName, "w+");
+  		if(fd == NULL) {
+  			printf("Error opening file...%s\n", fileName);
+  			exit(0);
+  		}
+
+  		bzero(buffer,sizeof(buffer));
+  		while(1) {
+  			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
+  			if(nbytes == 0) {
+  				break;
+  			}
+  			//printf("DATA: %s\n", buffer);
+  			//readBytes = read(fd, buffer, MAXBUFSIZE);
+  			fprintf(fd, "%s", buffer);
+  			len = send(connectionSock, buffer, nbytes, 0);
+  			bzero(buffer,sizeof(buffer));
+  		}
+  	}
+  	else {
+  		// works but not for gzip encoding.
+  		fd = fopen(fileName, "w+");
+  		if(fd == NULL) {
+  			printf("Error opening file...%s\n", fileName);
+  			exit(0);
+  		}
+
+  		bzero(buffer,sizeof(buffer));
+  		while(1) {
+  			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
+  			if(nbytes == 0) {
+  				break;
+  			}
+  			//printf("DATA: %s\n", buffer);
+  			//readBytes = read(fd, buffer, MAXBUFSIZE);
+  			fprintf(fd, "%s", buffer);
+  			len = send(connectionSock, buffer, nbytes, 0);
+  			bzero(buffer,sizeof(buffer));
+  		}
+  	}
   }
 
-  //Forward Request
-	len = write(remoteSock, request, strlen(request));
 
 
-  // Request page from server and put in cache
-	if(!strcmp(fileName, "")) {
-    // works but not for gzip encoding.
-		fd = fopen(hostName, "w+");
-		if(fd == NULL) {
-			printf("Error opening file...%s\n", fileName);
-			exit(0);
-		}
-
-		bzero(buffer,sizeof(buffer));
-		while(1) {
-			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
-			if(nbytes == 0) {
-				break;
-			}
-			//printf("DATA: %s\n", buffer);
-			//readBytes = read(fd, buffer, MAXBUFSIZE);
-			fprintf(fd, "%s", buffer);
-			len = send(connectionSock, buffer, nbytes, 0);
-			bzero(buffer,sizeof(buffer));
-		}
-	}
-	else {
-		// works but not for gzip encoding.
-		fd = fopen(fileName, "w+");
-		if(fd == NULL) {
-			printf("Error opening file...%s\n", fileName);
-			exit(0);
-		}
-
-		bzero(buffer,sizeof(buffer));
-		while(1) {
-			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
-			if(nbytes == 0) {
-				break;
-			}
-			//printf("DATA: %s\n", buffer);
-			//readBytes = read(fd, buffer, MAXBUFSIZE);
-			fprintf(fd, "%s", buffer);
-			len = send(connectionSock, buffer, nbytes, 0);
-			bzero(buffer,sizeof(buffer));
-		}
-	}
-
-	//printf("Outside loop....\n");
+	printf("Outside loop....\n");
 	fclose(fd);
 	close(remoteSock);
 
@@ -389,7 +388,7 @@ void cacheSend(int connectionSock, char* fileName)
   char buffer[HUGEBUFSIZE];
   FILE* fd;
   int readBytes, len;
-  printf("SENDING FROM CACHE!!\n");
+  printf("SENDING FROM CACHE!! %s\n", fileName);
   printf("Opening... %s\n", fileName);
   fd = fopen(fileName, "r");
   if(fd == NULL) {
