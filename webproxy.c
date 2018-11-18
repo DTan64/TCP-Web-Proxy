@@ -359,21 +359,10 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 	}
 	else {
 		// works but not for gzip encoding.
-
-		if(!strcmp(fileName, "")) {
-			printf("No filename.............\n");
-			fd = fopen(hostName, "w+");
-			if(fd == NULL) {
-				printf("Error opening file...%s\n", fileName);
-				exit(0);
-			}
-		}
-		else {
-			fd = fopen(fileName, "w+");
-			if(fd == NULL) {
-				printf("Error opening file...%s\n", fileName);
-				exit(0);
-			}
+		fd = fopen(fileName, "w+");
+		if(fd == NULL) {
+			printf("Error opening file...%s\n", fileName);
+			exit(0);
 		}
 
 		bzero(buffer,sizeof(buffer));
