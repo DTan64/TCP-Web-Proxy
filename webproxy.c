@@ -293,7 +293,7 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 {
 
 	int remoteSock, len, nbytes;
-	char buffer[MAXBUFSIZE];
+	char buffer[HUGEBUFSIZE];
 	struct hostent* remoteHost;
 	struct sockaddr_in remote_addr;
 	FILE* fd;
@@ -332,50 +332,30 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 	//Forward Request
 	len = write(remoteSock, request, strlen(request));
 
-	// //Receive Response
-	// bzero(buffer,sizeof(buffer));
-	// while(1) {
-	// 	nbytes = read(remoteSock, buffer, MAXBUFSIZE);
-	// 	if(nbytes == 0) {
-	// 		break;
-	// 	}
-	// 	printf("DATA: %s\n", buffer);
-	// 	//len = send(connectionSock, buffer, nbytes, 0);
-	// 	bzero(buffer,sizeof(buffer));
-	// }
-	// fclose(fd);
-	// printf("outside of the loop\n");
+  // TODO: check if file is in cache
+
 	int readBytes;
 	if(!strcmp(fileName, "")) {
-		printf("hit\n");
-		//TODO:check if exsists and send request to server if you do.
+
 		printf("Opening... %s\n", hostName);
-		// why is this not working
-		fd = fopen("test.txt", "r");
+		fd = fopen(hostName, "r");
 		if(fd == NULL) {
 			printf("Error opening file...%s\n", fileName);
 			exit(0);
 		}
 		bzero(buffer,sizeof(buffer));
 		while(1) {
-			printf("About to READ!\n");
-			//readBytes = fread(buffer, sizeof(buffer), 1, fd);
+
       readBytes = fgetc(fd);
       if( feof(fd) ) {
          break ;
       }
-      // printf("%c", c);
-			// if(readBytes <= 0) {
-			// 	ferror(fd);
-			// 	if( ferror(fd) ) {
-	    //   printf("Error in reading from file : file.txt\n");
-	   	// 	}
-			// 	break;
-			// }
-			// printf("READING: %s %i\n", buffer, readBytes);
-			// len = send(connectionSock, buffer, readBytes, 0);
-			// bzero(buffer,sizeof(buffer));
+
+      buffer[strlen(buffer)] = (char)readBytes;
 		}
+
+    printf("FILE BUFFER: %s\n", buffer);
+		len = send(connectionSock, buffer, strlen(buffer), 0);
 	}
 	else {
 		// works but not for gzip encoding.
