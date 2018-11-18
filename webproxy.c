@@ -25,7 +25,7 @@ int listening = 1;
 void INThandler(int sig);
 void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char fileName[MAXBUFSIZE], int timeout);
 int blackList(char* hostname);
-void cacheSend(char* fileName);
+void cacheSend(int connectionSock, char* fileName);
 
 int main(int argc, char* argv[])
 {
@@ -144,7 +144,7 @@ int main(int argc, char* argv[])
 			close(sock);
 
 			while((nbytes = read(connectionSock, buffer, MAXBUFSIZE)) > 0) {
-				printf("REQUEST: %s\n", buffer);
+				//printf("REQUEST: %s\n", buffer);
 
 				sprintf(originalRequest, "%s", buffer);
 				header = strtok_r(buffer, "\r\n\r\n", &saveptr);
@@ -244,14 +244,11 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 
 	remoteHost = search(addressCache, hostName);
 	if(remoteHost == NULL) {
-		printf("MISS\n");
 		remoteHost = gethostbyname(hostName);
 		if (remoteHost == NULL) {
 			 fprintf(stderr,"ERROR, no such host\n");
 			 exit(0);
 		}
-		printf("Caching...\n");
-		printf("remoteHost: %s\n", hostName);
 		insert(addressCache, hostName, remoteHost);
 	}
 
@@ -269,29 +266,42 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 
   // TODO: check if file is in cache
 
-  // if(stat(hostName, &st) == 0) {
-  //   printf("timestamp: %ld\n", st.st_mtime);
-  //   gettimeofday(&tv, NULL);
-  //   printf("current time: %ld\n", tv.tv_sec);
-  //   printf("timeout: %i\n", timeout);
-  //   if((tv.tv_sec - st.st_mtime) <= timeout) {
-  //     cacheHit = true;
-  //   }
-  // }
-  //
-  // if(cacheHit) {
-  //   if(!strcmp(fileName, "")) {
-  //     cacheSend(hostName);
-  //   }
-  //   else {
-  //     cacheSend(fileName);
-  //   }
-  // 	close(remoteSock);
-  //   return;
-  // }
+  if(!strcmp(fileName, "")) {
+    if(stat(hostName, &st) == 0) {
+      gettimeofday(&tv, NULL);
+      printf("Time since lasdt modification: %ld\n", tv.tv_sec - st.st_mtime);
+      if((tv.tv_sec - st.st_mtime) <= timeout) {
+        cacheHit = true;
+      }
+    }
+  }
+  else {
+    if(stat(fileName, &st) == 0) {
+      gettimeofday(&tv, NULL);
+      printf("Time since lasdt modification: %ld\n", tv.tv_sec - st.st_mtime);
+      if((tv.tv_sec - st.st_mtime) <= timeout) {
+        cacheHit = true;
+      }
+    }
+  }
+
+
+  if(cacheHit) {
+    if(!strcmp(fileName, "")) {
+      cacheSend(connectionSock, hostName);
+    }
+    else {
+      cacheSend(connectionSock, fileName);
+    }
+    printf("Returning from cache hit...\n");
+  	close(remoteSock);
+    printf("about to return\n");
+    return;
+  }
 
   //Forward Request
 	len = write(remoteSock, request, strlen(request));
+
 
   // Request page from server and put in cache
 	if(!strcmp(fileName, "")) {
@@ -308,7 +318,7 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 			if(nbytes == 0) {
 				break;
 			}
-			printf("DATA: %s\n", buffer);
+			//printf("DATA: %s\n", buffer);
 			//readBytes = read(fd, buffer, MAXBUFSIZE);
 			fprintf(fd, "%s", buffer);
 			len = send(connectionSock, buffer, nbytes, 0);
@@ -329,7 +339,7 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 			if(nbytes == 0) {
 				break;
 			}
-			printf("DATA: %s\n", buffer);
+			//printf("DATA: %s\n", buffer);
 			//readBytes = read(fd, buffer, MAXBUFSIZE);
 			fprintf(fd, "%s", buffer);
 			len = send(connectionSock, buffer, nbytes, 0);
@@ -337,7 +347,7 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		}
 	}
 
-	printf("Outside loop....\n");
+	//printf("Outside loop....\n");
 	fclose(fd);
 	close(remoteSock);
 
@@ -373,10 +383,15 @@ int blackList(char* hostName)
 
 }
 
-void cacheSend(char* fileName)
+void cacheSend(int connectionSock, char* fileName)
 {
-  printf("Opening... %s\n", hostName);
-  fd = fopen(hostName, "r");
+
+  char buffer[HUGEBUFSIZE];
+  FILE* fd;
+  int readBytes, len;
+  printf("SENDING FROM CACHE!!\n");
+  printf("Opening... %s\n", fileName);
+  fd = fopen(fileName, "r");
   if(fd == NULL) {
     printf("Error opening file...%s\n", fileName);
     exit(0);
@@ -392,7 +407,8 @@ void cacheSend(char* fileName)
     buffer[strlen(buffer)] = (char)readBytes;
   }
 
-  printf("FILE BUFFER: %s\n", buffer);
+  //printf("FILE BUFFER: %s\n", buffer);
   len = send(connectionSock, buffer, strlen(buffer), 0);
+
 
 }
