@@ -23,76 +23,9 @@
 int listening = 1;
 
 void INThandler(int sig);
-void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char fileName[MAXBUFSIZE]);
+void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char fileName[MAXBUFSIZE], int timeout);
 int blackList(char* hostname);
-
-
-int header_read(int server_sock, char *buffer, int buffer_length) {
-    int i = 0;
-    char ch = '\0';
-    int nbytes;
-    //Read char by char until end of line
-    while (i < (buffer_length - 1) && (ch != '\n')) {
-        nbytes = recv(server_sock, &ch, 1, 0);
-        if (nbytes > 0) {
-            if (ch == '\r') {
-                nbytes = recv(server_sock, &ch, 1, MSG_PEEK);
-                if ((nbytes > 0) && (ch == '\n')) {
-                    recv(server_sock, &ch, 1, 0);
-                }
-                else {
-                    ch = '\n';
-                }
-            }
-            buffer[i] = ch;
-            i++;
-        }
-        else {
-            ch = '\n';
-        }
-    }
-    buffer[i] = '\0';
-    return i;
-}
-
-int server_receive(int server_sock, char *buf) {
-    char msgBuffer[HUGEBUFSIZE];
-    int contentLength = 0;
-    unsigned int offset = 0;
-    while (1) {
-        int length = header_read(server_sock, msgBuffer, HUGEBUFSIZE);
-        if(length <= 0) {
-            return -1;
-        }
-
-        memcpy((buf + offset), msgBuffer, length);
-        offset += length;
-        if (strlen(msgBuffer) == 1) {
-            break;
-        }
-        if (strncmp(msgBuffer, "Content-Length", strlen("Content-Length")) == 0) {
-            char s1[256];
-            sscanf(msgBuffer, "%*s %s", s1);
-            contentLength = atoi(s1);
-        }
-    }
-    char* contentBuffer = malloc((contentLength * sizeof(char)) + 3);
-    int i;
-    for (i = 0; i < contentLength; i++) {
-        char c;
-        int nbytes = recv(server_sock, &c, 1, 0);
-        if (nbytes <= 0) {
-            return -1;
-        }
-        contentBuffer[i] = c;
-    }
-    contentBuffer[i + 1] = '\r';
-    contentBuffer[i + 2] = '\n';
-    contentBuffer[i + 3] = '\0';
-		printf("Conent Buffer: %s\n", contentBuffer);
-    memcpy((buf + offset), contentBuffer, (contentLength + 3));
-    return (offset + i + 4);
-}
+void cacheSend(char* fileName);
 
 int main(int argc, char* argv[])
 {
@@ -271,7 +204,7 @@ int main(int argc, char* argv[])
 					exit(0);
 				}
 
-				handleRequest(connectionSock, originalRequest, hostName, addressCache, fileName);
+				handleRequest(connectionSock, originalRequest, hostName, addressCache, fileName, timeout);
 				bzero(buffer,sizeof(buffer));
 			}
 			close(connectionSock);
@@ -289,13 +222,17 @@ void INThandler(int sig)
 	exit(0);
 }
 
-void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char* fileName)
+void handleRequest(int connectionSock, char* request, char* hostName, HashTable* addressCache, char* fileName, int timeout)
 {
 
 	int remoteSock, len, nbytes;
+	struct stat st;
 	char buffer[HUGEBUFSIZE];
 	struct hostent* remoteHost;
 	struct sockaddr_in remote_addr;
+  struct timeval tv;
+  bool cacheHit = false;
+	int readBytes;
 	FILE* fd;
 
 	remoteSock = socket(AF_INET, SOCK_STREAM, 0);
@@ -334,7 +271,29 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 
   // TODO: check if file is in cache
 
-	int readBytes;
+  // if(stat(hostName, &st) == 0) {
+  //   printf("timestamp: %ld\n", st.st_mtime);
+  //   gettimeofday(&tv, NULL);
+  //   printf("current time: %ld\n", tv.tv_sec);
+  //   printf("timeout: %i\n", timeout);
+  //   if((tv.tv_sec - st.st_mtime) <= timeout) {
+  //     cacheHit = true;
+  //   }
+  // }
+  //
+  // if(cacheHit) {
+  //   if(!strcmp(fileName, "")) {
+  //     cacheSend(hostName);
+  //   }
+  //   else {
+  //     cacheSend(fileName);
+  //   }
+  // 	close(remoteSock);
+  //   return;
+  // }
+
+
+  // Request page from server and put in cache
 	if(!strcmp(fileName, "")) {
 
 		printf("Opening... %s\n", hostName);
@@ -413,4 +372,9 @@ int blackList(char* hostName)
 	fclose(fd);
 	return false;
 
+}
+
+void cacheSend(char* fileName)
+{
+  return;
 }
