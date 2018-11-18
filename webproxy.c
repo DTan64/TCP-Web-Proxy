@@ -266,8 +266,6 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		 exit(-1);
 	}
 
-	//Forward Request
-	len = write(remoteSock, request, strlen(request));
 
   // TODO: check if file is in cache
 
@@ -292,29 +290,30 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
   //   return;
   // }
 
+  //Forward Request
+	len = write(remoteSock, request, strlen(request));
 
   // Request page from server and put in cache
 	if(!strcmp(fileName, "")) {
-
-		printf("Opening... %s\n", hostName);
-		fd = fopen(hostName, "r");
+    // works but not for gzip encoding.
+		fd = fopen(hostName, "w+");
 		if(fd == NULL) {
 			printf("Error opening file...%s\n", fileName);
 			exit(0);
 		}
+
 		bzero(buffer,sizeof(buffer));
 		while(1) {
-
-      readBytes = fgetc(fd);
-      if( feof(fd) ) {
-         break ;
-      }
-
-      buffer[strlen(buffer)] = (char)readBytes;
+			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
+			if(nbytes == 0) {
+				break;
+			}
+			printf("DATA: %s\n", buffer);
+			//readBytes = read(fd, buffer, MAXBUFSIZE);
+			fprintf(fd, "%s", buffer);
+			len = send(connectionSock, buffer, nbytes, 0);
+			bzero(buffer,sizeof(buffer));
 		}
-
-    printf("FILE BUFFER: %s\n", buffer);
-		len = send(connectionSock, buffer, strlen(buffer), 0);
 	}
 	else {
 		// works but not for gzip encoding.
@@ -376,5 +375,24 @@ int blackList(char* hostName)
 
 void cacheSend(char* fileName)
 {
-  return;
+  printf("Opening... %s\n", hostName);
+  fd = fopen(hostName, "r");
+  if(fd == NULL) {
+    printf("Error opening file...%s\n", fileName);
+    exit(0);
+  }
+  bzero(buffer,sizeof(buffer));
+  while(1) {
+
+    readBytes = fgetc(fd);
+    if( feof(fd) ) {
+       break ;
+    }
+
+    buffer[strlen(buffer)] = (char)readBytes;
+  }
+
+  printf("FILE BUFFER: %s\n", buffer);
+  len = send(connectionSock, buffer, strlen(buffer), 0);
+
 }
