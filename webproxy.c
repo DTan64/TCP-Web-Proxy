@@ -43,42 +43,12 @@ int main(int argc, char* argv[])
 	char* fullAddress;
 	char* protocol;
 	char* hostName;
-
 	int pid;
 	int timeout;
 	char err_500[] = "HTTP/1.1 500 Internal Server Error\r\n\r\n" "Internal Server Error.";
 	char err_403[] = "HTTP/1.1 403 Forbidden\r\n\r\n" "ERROR 403 Forbidden.";
 	int client_length = sizeof(client_addr);
 	HashTable* addressCache = createTable(50);
-	// struct timeval tv;
-	//
-	// typedef struct Page {
-	// 	int timeout;
-	// 	char* name;
-	// 	FILE* fd;
-	// } Page;
-	//
-	// typedef struct PageCache {
-	// 	Page** pages;
-	// 	int size;
-	// } PageCache;
-	//
-	// Page* tmp = malloc(sizeof(Page));
-	// PageCache Book;
-	// Book.pages = calloc(10, sizeof(Page));
-	// gettimeofday(&tv, NULL);
-	// tmp->timeout = tv.tv_sec;
-	// printf("Timeout: %i\n", tmp->timeout);
-	// sleep(60);
-	// gettimeofday(&tv,NULL);
-	// printf("Current time: %i\n", tv.tv_sec - tmp->timeout);
-	//
-	// Book.pages[0] = tmp;
-	// printf("First Page: %i\n", Book.pages[0]->timeout);
-	// printf("Timeout: %i\n", tmp->timeout);
-
-
-
 
 	/******************
 		This code populates the sockaddr_in struct with
@@ -144,13 +114,10 @@ int main(int argc, char* argv[])
 			close(sock);
 
 			while((nbytes = read(connectionSock, buffer, MAXBUFSIZE)) > 0) {
-				//printf("REQUEST: %s\n", buffer);
 
 				sprintf(originalRequest, "%s", buffer);
 				header = strtok_r(buffer, "\r\n\r\n", &saveptr);
-				//printf("HEADER: %s\n", header);
 				method = strtok_r(header, " ", &saveptr);
-				//printf("METHOD: %s\n", method);
 
 				if(strcmp(method, "GET")) {
           write(connectionSock, err_500, strlen(err_500));
@@ -161,12 +128,9 @@ int main(int argc, char* argv[])
 				char tmp[MAXBUFSIZE];
 				char fileName[MAXBUFSIZE];
 				fullAddress = strtok_r(NULL, " ", &saveptr);
-				printf("fullAddress: %s\n", fullAddress);
 				sprintf(tmp, "%s", fullAddress);
 				protocol = strtok_r(fullAddress, "://", &saveptr);
-				//printf("PROTOCOL: %s\n", protocol);
 				hostName = strtok_r(NULL, "/", &saveptr);
-				//printf("HOST: %s\n", hostName);
 
 				// Get file name
 				int fileStart = 0;
@@ -185,7 +149,7 @@ int main(int argc, char* argv[])
 				bzero(fileName,sizeof(fileName));
 
 				if(fileStart >= 0) {
-					for(int i = fileStart; i < strlen(tmp); i++) {
+					for(unsigned long i = fileStart; i < strlen(tmp); i++) {
 						if(!strncmp(&tmp[i], "?", 1) || !strncmp(&tmp[i], "\0", 1) || !strncmp(&tmp[i], "\n", 1)) {
 							break;
 						}
@@ -194,10 +158,6 @@ int main(int argc, char* argv[])
 					}
 				}
 
-
-				//printf("FileName: %s\n", fileName);
-
-				// TODO: Implement caching
 				if(blackList(hostName) == true) {
           write(connectionSock, err_403, strlen(err_403));
 					bzero(buffer,sizeof(buffer));
@@ -263,13 +223,9 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 		 exit(-1);
 	}
 
-
-  // TODO: check if file is in cache
-
   if(!strcmp(fileName, "")) {
     if(stat(hostName, &st) == 0) {
       gettimeofday(&tv, NULL);
-      printf("Time since lasdt modification: %ld\n", tv.tv_sec - st.st_mtime);
       if((tv.tv_sec - st.st_mtime) <= timeout) {
         cacheHit = true;
       }
@@ -278,13 +234,11 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
   else {
     if(stat(fileName, &st) == 0) {
       gettimeofday(&tv, NULL);
-      printf("Time since lasdt modification: %ld\n", tv.tv_sec - st.st_mtime);
       if((tv.tv_sec - st.st_mtime) <= timeout) {
         cacheHit = true;
       }
     }
   }
-
 
   if(cacheHit) {
     if(!strcmp(fileName, "")) {
@@ -295,12 +249,13 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
     }
   }
   else {
+
     //Forward Request
   	len = write(remoteSock, request, strlen(request));
 
-
     // Request page from server and put in cache
   	if(!strcmp(fileName, "")) {
+
       // works but not for gzip encoding.
   		fd = fopen(hostName, "w+");
   		if(fd == NULL) {
@@ -310,18 +265,18 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 
   		bzero(buffer,sizeof(buffer));
   		while(1) {
+
   			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
   			if(nbytes == 0) {
   				break;
   			}
-  			//printf("DATA: %s\n", buffer);
-  			//readBytes = read(fd, buffer, MAXBUFSIZE);
   			fprintf(fd, "%s", buffer);
   			len = send(connectionSock, buffer, nbytes, 0);
   			bzero(buffer,sizeof(buffer));
   		}
   	}
   	else {
+
   		// works but not for gzip encoding.
   		fd = fopen(fileName, "w+");
   		if(fd == NULL) {
@@ -331,12 +286,12 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
 
   		bzero(buffer,sizeof(buffer));
   		while(1) {
+
   			nbytes = read(remoteSock, buffer, MAXBUFSIZE);
   			if(nbytes == 0) {
   				break;
   			}
-  			//printf("DATA: %s\n", buffer);
-  			//readBytes = read(fd, buffer, MAXBUFSIZE);
+
   			fprintf(fd, "%s", buffer);
   			len = send(connectionSock, buffer, nbytes, 0);
   			bzero(buffer,sizeof(buffer));
@@ -344,9 +299,6 @@ void handleRequest(int connectionSock, char* request, char* hostName, HashTable*
   	}
   }
 
-
-
-	printf("Outside loop....\n");
 	fclose(fd);
 	close(remoteSock);
 
@@ -388,8 +340,7 @@ void cacheSend(int connectionSock, char* fileName)
   char buffer[HUGEBUFSIZE];
   FILE* fd;
   int readBytes, len;
-  printf("SENDING FROM CACHE!! %s\n", fileName);
-  printf("Opening... %s\n", fileName);
+  printf("Sending from cache...\n");
   fd = fopen(fileName, "r");
   if(fd == NULL) {
     printf("Error opening file...%s\n", fileName);
@@ -405,9 +356,6 @@ void cacheSend(int connectionSock, char* fileName)
 
     buffer[strlen(buffer)] = (char)readBytes;
   }
-
-  //printf("FILE BUFFER: %s\n", buffer);
   len = send(connectionSock, buffer, strlen(buffer), 0);
-
 
 }
