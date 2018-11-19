@@ -1,6 +1,6 @@
 #include "hashTable.h"
 
-const static Item DELETED_ITEM = {NULL, NULL};
+static Item DELETED_ITEM = {NULL, NULL};
 
 static Item* createItem(const char* key, struct hostent* value)
 {
